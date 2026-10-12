@@ -2,6 +2,8 @@ import {defaultStyle,parseStyle} from './core.mjs';
 
 export const STYLE_STORAGE_KEY='fb-campaign-style-v1';
 
+export function browserStorage(){try{return window.localStorage;}catch{return null;}}
+
 export function loadSavedStyle(storage){
  try{
   const raw=storage?.getItem(STYLE_STORAGE_KEY);
@@ -12,5 +14,5 @@ export function loadSavedStyle(storage){
 }
 
 export function saveStyle(storage,style,example){
- try{storage?.setItem(STYLE_STORAGE_KEY,JSON.stringify({style,example:example.slice(0,3000)}));return true;}catch{return false;}
+ try{if(!storage)return false;storage.setItem(STYLE_STORAGE_KEY,JSON.stringify({style,example:example.slice(0,3000)}));return true;}catch{return false;}
 }

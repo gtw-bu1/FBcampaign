@@ -1,14 +1,14 @@
 import React,{useState,useRef,useEffect} from 'react';
 import{createRoot}from'react-dom/client';
 import{initial,parseStyle,generateDrafts,validateActivity}from'./core.mjs';
-import{loadSavedStyle,saveStyle}from'./saved-style.mjs';
-const saved=loadSavedStyle(typeof window==='undefined'?null:window.localStorage);
+import{browserStorage,loadSavedStyle,saveStyle}from'./saved-style.mjs';
+const saved=loadSavedStyle(browserStorage());
 import{renderPoster}from'./canvas.mjs';
 import './style.css';
 function App(){
  const [a,setA]=useState(initial),[style,setStyle]=useState(saved.style),[assets,setAssets]=useState([]),[size,setSize]=useState('1200x1200'),[copy,setCopy]=useState(''),[tab,setTab]=useState('image'),[notice,setNotice]=useState(''),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[err,setErr]=useState(''),[concept,setConcept]=useState(''),[references,setReferences]=useState([]),[example,setExample]=useState(saved.example),[drafts,setDrafts]=useState([]),[generatedKey,setGeneratedKey]=useState(''),[accessCode,setAccessCode]=useState(''),[backgroundDataUrl,setBackgroundDataUrl]=useState('');
  const canvas=useRef(),version=useRef(0),assetRef=useRef([]),referenceRef=useRef([]),uploadLock=useRef(false);const key=JSON.stringify([a,style,size,example]);
- useEffect(()=>{if(!saveStyle(window.localStorage,style,example))setNotice('瀏覽器無法保存文案，請用「匯出規則範本」備份。');},[style,example]);useEffect(()=>{assetRef.current=assets;},[assets]);useEffect(()=>{referenceRef.current=references;},[references]);useEffect(()=>()=>{assetRef.current.forEach(x=>URL.revokeObjectURL(x.url));referenceRef.current.forEach(x=>URL.revokeObjectURL(x.url));},[]);
+ useEffect(()=>{if(!saveStyle(browserStorage(),style,example))setNotice('瀏覽器無法保存文案，請用「匯出規則範本」備份。');},[style,example]);useEffect(()=>{assetRef.current=assets;},[assets]);useEffect(()=>{referenceRef.current=references;},[references]);useEffect(()=>()=>{assetRef.current.forEach(x=>URL.revokeObjectURL(x.url));referenceRef.current.forEach(x=>URL.revokeObjectURL(x.url));},[]);
  useEffect(()=>{let cancelled=false;const id=++version.current;setReady(false);setErr('');const temp=document.createElement('canvas');renderPoster(temp,a,assets,style,size,backgroundDataUrl).then(()=>{if(cancelled||id!==version.current)return;const target=canvas.current;if(target){target.width=temp.width;target.height=temp.height;target.getContext('2d').drawImage(temp,0,0);setReady(true);}}).catch(e=>{if(!cancelled)setErr(e.message);});return()=>{cancelled=true;};},[a,assets,style,size,tab,backgroundDataUrl]);
  function update(k,v){setA(x=>({...x,[k]:v}));}
  async function upload(files,ref=false){if(uploadLock.current)return;uploadLock.current=true;const added=[];let failures=[];try{for(const f of Array.from(files)){if((ref?references.length:assets.length)+added.length>=8){failures.push('最多上傳 8 張圖片');break;}if(!['image/png','image/jpeg','image/webp'].includes(f.type)||f.size>10*1024*1024){failures.push(`${f.name}：僅接受 10 MB 內 PNG/JPG/WebP`);continue;}const url=URL.createObjectURL(f);try{const im=await new Promise((r,j)=>{let i=new Image();i.onload=()=>r(i);i.onerror=j;i.src=url;});if(im.width*im.height>24000000)throw Error();added.push({id:crypto.randomUUID(),file:f,url,label:f.name.replace(/\.[^.]+$/,'' ).slice(0,24),role:'獎勵 ICON'});}catch{URL.revokeObjectURL(url);failures.push(`${f.name}：無法讀取或超過 2400 萬像素`);}}if(ref)setReferences(x=>[...x,...added]);else setAssets(x=>[...x,...added]);setNotice(failures.join('；')||`已加入 ${added.length} 張${ref?'參考圖':'原廠素材'}。`);}finally{uploadLock.current=false;}}
