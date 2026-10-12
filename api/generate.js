@@ -77,9 +77,9 @@ export default async function handler(req, res) {
     if (!validString(idea.hook, 280) || !validString(idea.visual_direction, 500)) throw new Error('AI 回傳的創意內容不完整，請重試。');
     const image = await openai('images/generations', {
       model: IMAGE_MODEL,
-      prompt: `Create one premium, polished social campaign BACKGROUND ONLY. Visual direction: ${idea.visual_direction}. Theme: ${s.visualMood}. Extra art direction: ${s.visualNotes || 'balanced, beautiful seasonal atmosphere'}. Color accent: ${s.accent}. Aspect ratio: ${size === '1200x628' ? 'wide landscape' : 'square'}. Use elegant layered depth, refined lighting, attractive color harmony, and generous calm space for later text and product overlays. Absolutely no words, letters, numbers, typography, buttons, logos, emblems, game characters, reward items, products, icons or watermarks. No text anywhere. The foreground will be composited separately.`,
+      prompt: `Create one premium, polished social campaign BACKGROUND ONLY. Visual direction: ${idea.visual_direction}. Theme: ${s.visualMood}. Extra art direction: ${s.visualNotes || 'balanced, beautiful seasonal atmosphere'}. Color accent: ${s.accent}. Aspect ratio: ${size === '1200x628' ? 'wide landscape; keep left 45 percent quiet for title, right area softly decorative for product overlays' : 'square; keep top 30 percent quiet for title and central area softly decorative for product overlays'}. Use elegant layered depth, refined lighting, attractive color harmony. Absolutely no words, letters, numbers, typography, buttons, logos, emblems, game characters, reward items, products, icons or watermarks. No text anywhere. The foreground will be composited separately.`,
       n: 1,
-      size: size === '1200x628' ? '1536x1024' : '1024x1024',
+      size: size === '1200x628' ? '1536x800' : '1024x1024',
       quality: 'medium',
       output_format: 'jpeg',
       output_compression: 68,

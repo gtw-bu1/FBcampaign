@@ -53,7 +53,12 @@ test('server authenticates and sends text only to image generation', async () =>
     assert.ok(accepted.body.backgroundDataUrl.startsWith('data:image/jpeg;base64,'));
     assert.equal(sent.length, 2);
     assert.ok(!JSON.stringify(sent).includes('PRIVATE_ORIGINAL_ASSET'));
+    assert.equal(sent[1].body.size, '1024x1024');
     assert.ok(accepted.body.copy.includes(initial.conditions));
+    const wide = response();
+    await handler({ method: 'POST', headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE }, body: { ...body, size: '1200x628' } }, wide);
+    assert.equal(wide.statusCode, 200);
+    assert.equal(sent[3].body.size, '1536x800');
   } finally {
     globalThis.fetch = oldFetch;
     if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey;
