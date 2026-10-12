@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {initial,defaultStyle,generateMock,parseStyle,contain} from '../src/core.mjs';
+test('mock preserves activity facts and explicitly identifies mode',async()=>{const r=await generateMock(initial,defaultStyle);assert.equal(r.mode,'mock');for(const k of ['name','time','rewards','conditions','cta'])assert.ok(r.copy.includes(initial[k]));});
+test('missing required facts rejected',async()=>{await assert.rejects(generateMock({...initial,time:' '},defaultStyle));});
+test('style import rejects unsafe or malformed data',()=>{assert.throws(()=>parseStyle('{"accent":"red"}'));assert.throws(()=>parseStyle('{"examples":[123]}'));assert.throws(()=>parseStyle('null'));assert.equal(parseStyle('{"accent":"#123456","examples":["案例"]}').examples[0],'案例');});
+test('contain preserves original aspect ratio and never crops',()=>{for(const [w,h] of [[100,100],[1920,1080],[200,1400]]){const b=contain(w,h,20,30,400,250);assert.ok(Math.abs(b.w/b.h-w/h)<1e-9);assert.ok(b.x>=20&&b.y>=30&&b.x+b.w<=420.001&&b.y+b.h<=280.001);}});
