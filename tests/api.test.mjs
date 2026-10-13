@@ -10,6 +10,7 @@ function response() {
 
 test('request accepts supported content and rejects unknown size', () => {
   assert.equal(validateRequest(body), '');
+  assert.equal(validateRequest({...body,activity:{...initial,cta:''}}),'');
   assert.match(validateRequest({ ...body, size: '4000x4000' }), /尺寸/);
 });
 

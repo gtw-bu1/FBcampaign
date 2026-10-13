@@ -13,7 +13,7 @@ function validString(value, max) {
 export function validateRequest(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return '資料格式不正確。';
   const { activity: a, style: s, size } = body;
-  if (!a || !validString(a.name, 60) || !validString(a.time, 100) || !validString(a.rewards, 180) || !validString(a.conditions, 1500) || !validString(a.cta, 24)) return '請完整填寫活動資料，並縮短過長內容。';
+  if (!a || !validString(a.name, 60) || !validString(a.time, 100) || !validString(a.rewards, 180) || !validString(a.conditions, 1500) || typeof a.cta !== 'string' || a.cta.length > 24) return '請完整填寫活動資料，並縮短過長內容。';
   if (!s || !validString(s.tone, 40) || !validString(s.visualMood, 60) || !validString(s.accent, 7) || !/^#[0-9a-f]{6}$/i.test(s.accent) || typeof s.hashtags !== 'string' || s.hashtags.length > 200 || typeof s.visualNotes !== 'string' || s.visualNotes.length > 300) return '請檢查風格設定。';
   if(s.selectedHashtags!==undefined&&(!Array.isArray(s.selectedHashtags)||s.selectedHashtags.some(x=>!OPTIONAL_HASHTAGS.includes(x))))return '可選 Hashtag 格式不正確。';
   if (!Array.isArray(s.examples) || s.examples.length > 20 || s.examples.some(x => typeof x !== 'string' || x.length > 3000)) return '歷史文案格式不正確。';
@@ -50,7 +50,7 @@ async function openai(path, body, key, timeoutMs) {
 }
 
 export function composeCopy(activity, style, hook) {
-  return `${hook.trim()}\n\n📅 活動時間\n${activity.time}\n\n🎁 活動獎勵\n${activity.rewards}\n\n📌 參加方式\n${activity.conditions}\n\n${activity.cta}\n\n${composeHashtags(style)}`.trim();
+  return `${hook.trim()}\n\n📅 活動時間\n${activity.time}\n\n🎁 活動獎勵\n${activity.rewards}\n\n📌 參加方式\n${activity.conditions}${activity.cta.trim()?`\n\n${activity.cta}`:''}\n\n${composeHashtags(style)}`.trim();
 }
 
 export default async function handler(req, res) {
