@@ -7,14 +7,14 @@ test('saved FB references and unfinished paste survive a page reload',()=>{
  const values=new Map();
  const storage={getItem:k=>values.get(k)??null,setItem:(k,v)=>values.set(k,v)};
  const style={...defaultStyle,examples:['第一篇可愛文案💕']};
- assert.equal(saveStyle(storage,style,'第二篇還在貼上中'),true);
+ assert.equal(saveStyle(storage,style,'第二篇還在貼上中',3,['第一種開場']),true);
  assert.ok(values.has(STYLE_STORAGE_KEY));
- assert.deepEqual(loadSavedStyle(storage),{style,example:'第二篇還在貼上中'});
+ assert.deepEqual(loadSavedStyle(storage),{style,example:'第二篇還在貼上中',generationIndex:3,recentOpenings:['第一種開場']});
 });
 
 test('damaged browser storage falls back safely',()=>{
  const storage={getItem:()=>'{broken'};
- assert.deepEqual(loadSavedStyle(storage),{style:defaultStyle,example:''});
+ assert.deepEqual(loadSavedStyle(storage),{style:defaultStyle,example:'',generationIndex:0,recentOpenings:[]});
 });
 
 test('old demo hashtags are removed without losing saved FB examples',()=>{
