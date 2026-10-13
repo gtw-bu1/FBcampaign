@@ -95,8 +95,8 @@ export function generateDrafts(a,s,iteration=0,recentOpenings=[]){
    const n=(Math.max(0,Math.floor(iteration))*3+slot+attempt*3);
    const sceneLine=at(scene.scenes,n);
    const bridge=at(bridges,Math.floor(n/8)+slot*2);
-   const start=slot===0?sceneLine:slot===1?at(rewardStarts,n):at(nameStarts,n);
-   const second=slot===0?bridge:slot===1?sceneLine:bridge;
+   const start=slot===2?at(scene.scenes,n+3):sceneLine;
+   const second=slot===0?bridge:slot===1?at(rewardStarts,n):at(nameStarts,n);
    const opening=`${start}\n\n${second}`;
    selected={opening,start,second};
    if(!recentOpenings.includes(opening))break;
