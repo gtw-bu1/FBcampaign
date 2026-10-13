@@ -14,8 +14,9 @@ test('request accepts supported content and rejects unknown size', () => {
 });
 
 test('AI hook cannot replace exact activity facts', () => {
-  const copy = composeCopy(initial, defaultStyle, '一起展開新的冒險！');
+  const copy = composeCopy(initial, {...defaultStyle,selectedHashtags:['#限時好禮'],hashtags:'#自訂活動'}, '一起展開新的冒險！');
   for (const key of ['time', 'rewards', 'conditions', 'cta']) assert.ok(copy.includes(initial[key]));
+  assert.ok(copy.endsWith('#CSO絕對武力 #限時好禮 #自訂活動'));
 });
 
 test('API refuses requests before a server key is configured', async () => {

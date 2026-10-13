@@ -9,7 +9,9 @@ export function loadSavedStyle(storage){
   const raw=storage?.getItem(STYLE_STORAGE_KEY);
   if(!raw)return {style:defaultStyle,example:''};
   const saved=JSON.parse(raw);
-  return {style:parseStyle(JSON.stringify(saved.style)),example:typeof saved.example==='string'?saved.example.slice(0,3000):''};
+  const style=parseStyle(JSON.stringify(saved.style));
+  if(style.hashtags==='#秋日冒險 #限時活動')style.hashtags='';
+  return {style,example:typeof saved.example==='string'?saved.example.slice(0,3000):''};
  }catch{return {style:defaultStyle,example:''};}
 }
 

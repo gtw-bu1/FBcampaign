@@ -16,3 +16,10 @@ test('damaged browser storage falls back safely',()=>{
  const storage={getItem:()=>'{broken'};
  assert.deepEqual(loadSavedStyle(storage),{style:defaultStyle,example:''});
 });
+
+test('old demo hashtags are removed without losing saved FB examples',()=>{
+ const storage={getItem:()=>JSON.stringify({style:{...defaultStyle,hashtags:'#秋日冒險 #限時活動',examples:['我的舊文案']},example:''})};
+ const saved=loadSavedStyle(storage);
+ assert.equal(saved.style.hashtags,'');
+ assert.deepEqual(saved.style.examples,['我的舊文案']);
+});

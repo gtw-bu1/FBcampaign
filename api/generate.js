@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import {composeHashtags,OPTIONAL_HASHTAGS} from '../src/core.mjs';
 
 const TEXT_MODEL = 'gpt-4.1-mini';
 const IMAGE_MODEL = 'gpt-image-2.5-flare';
@@ -14,6 +15,7 @@ export function validateRequest(body) {
   const { activity: a, style: s, size } = body;
   if (!a || !validString(a.name, 60) || !validString(a.time, 100) || !validString(a.rewards, 180) || !validString(a.conditions, 1500) || !validString(a.cta, 24)) return '請完整填寫活動資料，並縮短過長內容。';
   if (!s || !validString(s.tone, 40) || !validString(s.visualMood, 60) || !validString(s.accent, 7) || !/^#[0-9a-f]{6}$/i.test(s.accent) || typeof s.hashtags !== 'string' || s.hashtags.length > 200 || typeof s.visualNotes !== 'string' || s.visualNotes.length > 300) return '請檢查風格設定。';
+  if(s.selectedHashtags!==undefined&&(!Array.isArray(s.selectedHashtags)||s.selectedHashtags.some(x=>!OPTIONAL_HASHTAGS.includes(x))))return '可選 Hashtag 格式不正確。';
   if (!Array.isArray(s.examples) || s.examples.length > 20 || s.examples.some(x => typeof x !== 'string' || x.length > 3000)) return '歷史文案格式不正確。';
   if (!['1200x1200', '1200x628'].includes(size)) return '圖片尺寸不正確。';
   if (JSON.stringify(body).length > MAX_REQUEST_CHARS) return '資料過長，請減少歷史文案。';
@@ -48,7 +50,7 @@ async function openai(path, body, key, timeoutMs) {
 }
 
 export function composeCopy(activity, style, hook) {
-  return `${hook.trim()}\n\n📅 活動時間\n${activity.time}\n\n🎁 活動獎勵\n${activity.rewards}\n\n📌 參加方式\n${activity.conditions}\n\n${activity.cta}\n\n${style.hashtags}`.trim();
+  return `${hook.trim()}\n\n📅 活動時間\n${activity.time}\n\n🎁 活動獎勵\n${activity.rewards}\n\n📌 參加方式\n${activity.conditions}\n\n${activity.cta}\n\n${composeHashtags(style)}`.trim();
 }
 
 export default async function handler(req, res) {
