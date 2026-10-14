@@ -10,7 +10,7 @@ function downloadCsv(records,filename){
  const url=URL.createObjectURL(new Blob([historyCsv(records)],{type:'text/csv;charset=utf-8'}));
  const link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),3000);
 }
-export default function PerformancePanel({activity}){
+export default function PerformancePanel({activity,embedded=false}){
  const [history,setHistory]=useState(()=>loadHistory(browserStorage()));
  const [draft,setDraft]=useState(blank);
  const [assessment,setAssessment]=useState(()=>inferAssessment(activity));
@@ -44,7 +44,7 @@ export default function PerformancePanel({activity}){
   }catch(error){setMessage(`匯入失敗：${error.message}`);}
  }
  const historyInput=(label,key,type='text')=><label className="field">{label}<input type={type} value={draft[key]} onChange={event=>setDraft(current=>({...current,[key]:event.target.value}))}/></label>;
- return <section className="card performance-card">
+ return <section className={embedded?'card performance-card embedded':'card performance-card'}>
   <div className="section-title"><span className="step">預</span><h2>成效預估</h2><span className="required">依歷史資料估算</span></div>
   <p className="muted">先確認這檔活動的規模，再用過往活動估算參與人數。沒有足夠資料時不會產生數字。</p>
   <div className="performance-subtitle">① 判定活動規模</div>
