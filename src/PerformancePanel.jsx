@@ -1,9 +1,9 @@
 import React,{useEffect,useMemo,useState} from 'react';
 import {browserStorage} from './saved-style.mjs';
-import {analyzeHistory,estimateParticipants,historyCsv,inferAssessment,inferScale,loadHistory,parseHistoryCsv,saveHistory,SEASONS,validateRecord} from './performance.mjs';
+import {analyzeHistory,estimateParticipants,historyCsv,inferAssessment,inferScale,loadHistory,parseHistoryCsv,REWARD_MODES,saveHistory,SEASONS,validateRecord} from './performance.mjs';
 import './performance.css';
 
-const blank={name:'',start:'',end:'',difficulty:'3',rewardValue:'3',season:'平季',participants:'',conditions:'',rewards:'',reach:''};
+const blank={name:'',start:'',end:'',difficulty:'3',rewardValue:'3',season:'平季',rewardMode:'',participants:'',conditions:'',rewards:'',reach:''};
 const scoreOptions=[1,2,3,4,5];
 const count=value=>new Intl.NumberFormat('zh-TW').format(value);
 function downloadCsv(records,filename){
@@ -21,9 +21,10 @@ export default function PerformancePanel({activity}){
  useEffect(()=>{setAssessment(inferAssessment(activity));setScaleOverride('');setResult(null);},[activity.name,activity.time,activity.conditions,activity.rewards]);
  useEffect(()=>{if(!saveHistory(browserStorage(),history)&&history.length)setMessage('瀏覽器無法保存歷史活動，請先匯出 CSV 備份。');setResult(null);},[history]);
  const scale=scaleOverride||inferScale(assessment.difficulty,assessment.rewardValue,assessment.duration);
- function adjust(key,value){setAssessment(current=>({...current,[key]:key==='season'?value:Number(value)}));setResult(null);}
+ function adjust(key,value){setAssessment(current=>({...current,[key]:key==='season'||key==='rewardMode'?value:Number(value)}));setResult(null);}
  function addRecord(){
   try{
+   if(!draft.rewardMode)throw Error('請選擇獎勵發放方式。');
    const record=validateRecord(draft);
    const existing=history.findIndex(x=>x.name===record.name&&x.start===record.start&&x.end===record.end);
    if(existing<0&&history.length>=200)throw Error('最多保存 200 檔歷史活動。');
@@ -53,6 +54,7 @@ export default function PerformancePanel({activity}){
    <label className="field">獎勵價值<select value={assessment.rewardValue} onChange={e=>adjust('rewardValue',e.target.value)}>{scoreOptions.map(n=><option key={n} value={n}>{n} / 5</option>)}</select></label>
    <label className="field">活動天數<input type="number" min="1" max="366" value={assessment.duration} onChange={e=>adjust('duration',e.target.value)}/></label>
    <label className="field">檔期<select value={assessment.season} onChange={e=>adjust('season',e.target.value)}><option value="">請確認檔期</option>{SEASONS.map(x=><option key={x}>{x}</option>)}</select></label>
+   <label className="field">獎勵發放方式<select value={assessment.rewardMode} onChange={e=>adjust('rewardMode',e.target.value)}><option value="">請確認方式</option>{REWARD_MODES.map(x=><option key={x}>{x}</option>)}</select></label>
   </div>
   <label className="field performance-scale">活動規模<select value={scale} onChange={e=>{setScaleOverride(e.target.value);setResult(null);}}>{['小型','中型','大型'].map(x=><option key={x}>{x}</option>)}</select></label>
   <p className="muted">初判依據：{assessment.notes.join('；')}。淡旺季由你依實際營運檔期確認；規模分類只是活動描述，不直接當作人數保證。</p>
@@ -60,7 +62,7 @@ export default function PerformancePanel({activity}){
   <button className="generate performance-estimate" onClick={()=>setResult(estimateParticipants(history,{...assessment,scale}))}>確認判定並預估 <span>→</span></button>
   {result&&<div className="performance-result" role="status">{result.status==='ready'?<><div className="performance-range">約 {count(result.low)}–{count(result.high)} 人</div><p>相似案例的中心值：約 {count(result.center)} 人；依 {result.count} 檔歷史活動估算。</p><p>{result.message}</p><strong>最相近的 3 檔</strong><ul>{result.similar.map((x,i)=><li key={`${x.name}-${i}`}>{x.name}：{count(x.participants)} 人（{x.season}・{x.duration} 天）</li>)}</ul></>:<p>{result.message}</p>}</div>}
   <details className="performance-history"><summary>歷史活動資料 <span>{history.length} 檔 ＋</span></summary>
-   <p className="muted">每列一檔活動。難易度 1＝登入／留言，5＝多步驟或長期任務；獎勵價值 1＝一般小獎，5＝稀有或高價獎。人數請統一填「不重複參加者」。資料只保存在這個瀏覽器。</p>
+   <p className="muted">每列一檔活動。難易度 1＝登入／留言，5＝多步驟或長期任務；獎勵價值 1＝一般小獎，5＝稀有或高價獎。「留言就送」選符合條件即送；參與獎加抽獎選混合。人數請統一填「不重複參加者」。資料只保存在這個瀏覽器。</p>
    <div className="performance-actions"><button className="secondary" onClick={()=>downloadCsv([],'社群活動成效資料範本.csv')}>下載 CSV 範本</button><label className="button secondary">匯入 CSV<input type="file" accept=".csv,text/csv" onChange={importCsv}/></label><button className="secondary" disabled={!history.length} onClick={()=>downloadCsv(history,'社群活動成效備份.csv')}>匯出備份</button></div>
    <div className="performance-subtitle">手動新增一檔</div>
    {historyInput('活動名稱','name')}
@@ -69,13 +71,14 @@ export default function PerformancePanel({activity}){
     <label className="field">參加難易度<select value={draft.difficulty} onChange={e=>setDraft({...draft,difficulty:e.target.value})}>{scoreOptions.map(n=><option key={n} value={n}>{n} / 5</option>)}</select></label>
     <label className="field">獎勵價值<select value={draft.rewardValue} onChange={e=>setDraft({...draft,rewardValue:e.target.value})}>{scoreOptions.map(n=><option key={n} value={n}>{n} / 5</option>)}</select></label>
     <label className="field">檔期<select value={draft.season} onChange={e=>setDraft({...draft,season:e.target.value})}>{SEASONS.map(x=><option key={x}>{x}</option>)}</select></label>
+    <label className="field">獎勵發放方式<select value={draft.rewardMode} onChange={e=>setDraft({...draft,rewardMode:e.target.value})}><option value="">請選擇</option>{REWARD_MODES.map(x=><option key={x}>{x}</option>)}</select></label>
     {historyInput('最終參與人數','participants','number')}
    </div>
    {historyInput('活動條件（選填）','conditions')}{historyInput('獎勵內容（選填）','rewards')}{historyInput('曝光人數（選填）','reach','number')}
    <button className="secondary performance-add" onClick={addRecord}>保存這檔活動</button>
    {message&&<p className="performance-message" role="status">{message}</p>}
-   {history.length>0&&<div className="performance-records">{history.map((record,i)=><div key={`${record.name}-${record.start}-${i}`}><span><strong>{record.name}</strong><small>{record.start} ～ {record.end} · {record.season} · {count(record.participants)} 人</small></span><button className="icon-btn" aria-label={`移除 ${record.name}`} onClick={()=>setHistory(current=>current.filter((_,at)=>at!==i))}>×</button></div>)}</div>}
-   <div className="performance-analysis"><strong>歷史關聯觀察</strong><p className="muted">{analysis.message}</p>{analysis.trends.map(x=><p key={x.label}>{x.label}：{x.direction}</p>)}{analysis.seasons?.filter(x=>x.median!==null).map(x=><p key={x.season}>{x.season}中位數：{count(x.median)} 人（{x.count} 檔）</p>)}</div>
+   {history.length>0&&<div className="performance-records">{history.map((record,i)=><div key={`${record.name}-${record.start}-${i}`}><span><strong>{record.name}</strong><small>{record.start} ～ {record.end} · {record.season} · {count(record.participants)} 人</small><select aria-label={`${record.name} 獎勵發放方式`} value={record.rewardMode} onChange={e=>setHistory(current=>current.map((x,at)=>at===i?{...x,rewardMode:e.target.value}:x))}><option value="未分類">未分類，請補選</option>{REWARD_MODES.map(x=><option key={x}>{x}</option>)}</select></span><button className="icon-btn" aria-label={`移除 ${record.name}`} onClick={()=>setHistory(current=>current.filter((_,at)=>at!==i))}>×</button></div>)}</div>}
+   <div className="performance-analysis"><strong>歷史關聯觀察</strong><p className="muted">{analysis.message}</p>{analysis.modes?.filter(x=>x.median!==null).map(x=><p key={x.rewardMode}>{x.rewardMode}參與中位數：{count(x.median)} 人（{x.count} 檔）</p>)}{analysis.trends.map(x=><p key={x.label}>{x.label}：{x.direction}</p>)}{analysis.seasons?.filter(x=>x.median!==null).map(x=><p key={x.season}>{x.season}中位數：{count(x.median)} 人（{x.count} 檔）</p>)}</div>
   </details>
  </section>;
 }
