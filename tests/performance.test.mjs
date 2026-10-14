@@ -1,25 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {analyzeHistory,durationDays,estimateParticipants,historyCsv,inferAssessment,inferDuration,inferRewardMode,loadHistory,parseHistoryCsv,saveHistory,validateRecord} from '../src/performance.mjs';
+import {analyzeHistory,DIFFICULTY_OPTIONS,durationDays,estimateParticipants,historyCsv,inferAssessment,inferDates,inferDuration,inferRewardMode,loadHistory,parseHistoryCsv,REWARD_CATEGORIES,saveHistory,validateRecord} from '../src/performance.mjs';
 
 const activity={name:'中秋月兔留影會',time:'2026/09/21 維護後 ～ 2026/10/14 維護前',conditions:'穿戴中秋服裝拍照並留言，累積登入 7 天。',rewards:'限定角色 × 1'};
-const rows=Array.from({length:9},(_,i)=>validateRecord({name:`歷史活動 ${i+1}`,start:`2026-0${i+1}-01`,end:`2026-0${i+1}-14`,difficulty:i%5+1,rewardValue:(i+2)%5+1,season:['淡季','平季','旺季'][i%3],rewardMode:'抽獎',participants:100+i*85,conditions:'留言、登入',rewards:'角色獎勵'}));
+const rows=Array.from({length:9},(_,i)=>{const rewardCategory=REWARD_CATEGORIES[i%4].label;return validateRecord({name:`歷史活動 ${i+1}`,start:`2026-0${i+1}-01`,end:`2026-0${i+1}-14`,difficultyLabel:DIFFICULTY_OPTIONS[i%5].label,rewardCategory,rewardAmount:rewardCategory==='有明確金額價值'?String(500+i*100):'',season:['淡季','平季','旺季'][i%3],rewardMode:'抽獎',participants:100+i*85,conditions:'留言、登入',rewards:'角色獎勵'});});
 
 test('campaign dates and editable initial assessment are derived without inventing a season',()=>{
  assert.equal(inferDuration(activity.time),24);
+ assert.deepEqual(inferDates(activity.time),{start:'2026-09-21',end:'2026-10-14'});
  assert.equal(durationDays('2026-02-28','2026-03-01'),2);
  assert.equal(durationDays('2026-02-30','2026-03-01'),null);
  const assessment=inferAssessment(activity);
  assert.equal(assessment.duration,24);
- assert.equal(assessment.difficulty,5);
- assert.equal(assessment.rewardValue,5);
+ assert.equal(assessment.difficultyLabel,'需達上線時間門檻');
+ assert.equal(assessment.rewardCategory,'免費但稀有');
  assert.equal(assessment.season,'');
  assert.equal(assessment.rewardMode,'');
+ assert.equal(inferAssessment({...activity,time:'待定'}).duration,null);
 });
 test('reward distribution is classified separately from participation conditions',()=>{
  assert.equal(inferRewardMode('留言就抽，抽出角色一名'),'抽獎');
  assert.equal(inferRewardMode('留言就送道具，每人可領取'),'符合條件即送');
  assert.equal(inferRewardMode('參與活動即可獲得解碼器，另抽出角色一名'),'混合');
+});
+test('text categories keep a consistent rubric and monetary rewards require an amount',()=>{
+ const assessed=inferAssessment({...activity,conditions:'上傳影片並投稿',rewards:'獎勵價值 NT$ 1,200'});
+ assert.equal(assessed.difficultyLabel,'需進行投稿');
+ assert.equal(assessed.rewardCategory,'有明確金額價值');
+ assert.equal(assessed.rewardAmount,1200);
+ const record=validateRecord({...rows[0],difficultyLabel:'需附上影片',rewardCategory:'有明確金額價值',rewardAmount:'1200'});
+ assert.equal(record.difficulty,3);
+ assert.equal(record.rewardValue,5);
+ assert.equal(record.rewardAmount,1200);
 });
 test('CSV template, quoting, import validation and browser persistence',()=>{
  const csv=historyCsv([{...rows[0],name:'活動,「測試」',conditions:'先登入\n再留言'}]);
@@ -27,17 +39,25 @@ test('CSV template, quoting, import validation and browser persistence',()=>{
  assert.equal(imported[0].name,'活動,「測試」');
  assert.equal(imported[0].conditions,'先登入\n再留言');
  assert.equal(imported[0].rewardMode,'抽獎');
+ assert.equal(imported[0].difficultyLabel,rows[0].difficultyLabel);
+ assert.equal(imported[0].rewardCategory,rows[0].rewardCategory);
  assert.throws(()=>parseHistoryCsv(historyCsv([])),/至少填入/);
  assert.throws(()=>validateRecord({...rows[0],participants:''}),/參與人數/);
  assert.throws(()=>validateRecord({...rows[0],rewardMode:''}),/獎勵發放方式/);
+ assert.throws(()=>validateRecord({...rows[0],rewardCategory:''}),/獎勵類型/);
+ assert.throws(()=>validateRecord({...rows[0],rewardCategory:'有明確金額價值',rewardAmount:''}),/金額型獎勵/);
  const legacy='活動名稱,開始日期,結束日期,參加難易度,獎勵價值,檔期,最終參與人數\n舊活動,2026-01-01,2026-01-07,2,3,平季,100\n';
  assert.equal(parseHistoryCsv(legacy)[0].rewardMode,'未分類');
+ assert.equal(parseHistoryCsv(legacy)[0].difficultyLabel,'未分類');
+ assert.equal(parseHistoryCsv(legacy)[0].rewardCategory,'未分類');
+ assert.equal(parseHistoryCsv(historyCsv(parseHistoryCsv(legacy)))[0].difficultyLabel,'未分類');
+ assert.equal(parseHistoryCsv(historyCsv(parseHistoryCsv(legacy)))[0].rewardCategory,'未分類');
  const values=new Map();const storage={getItem:key=>values.get(key),setItem:(key,value)=>values.set(key,value)};
  assert.equal(saveHistory(storage,rows),true);
  assert.deepEqual(loadHistory(storage),rows);
 });
 test('forecast waits for enough actual records and shows an empirical range',()=>{
- const target={difficulty:3,rewardValue:4,duration:14,season:'平季',rewardMode:'抽獎'};
+ const target={difficulty:3,rewardValue:4,rewardCategory:'免費但稀有',rewardAmount:null,duration:14,season:'平季',rewardMode:'抽獎'};
  assert.equal(estimateParticipants(rows.slice(0,4),target).status,'insufficient');
  assert.equal(estimateParticipants(rows,{...target,season:''}).status,'invalid');
  const estimate=estimateParticipants(rows,target);
@@ -45,6 +65,7 @@ test('forecast waits for enough actual records and shows an empirical range',()=
  assert.equal(estimate.similar.length,3);
  assert.ok(estimate.low<=estimate.center&&estimate.center<=estimate.high);
  assert.ok(estimate.high>estimate.low);
+ assert.equal(estimateParticipants(rows,{...target,duration:null}).status,'invalid');
  const mixed=rows.map((x,i)=>({...x,rewardMode:i<2?'符合條件即送':'抽獎'}));
  assert.equal(estimateParticipants(mixed,{...target,rewardMode:'符合條件即送'}).status,'insufficient');
  assert.equal(estimateParticipants(mixed,{...target,rewardMode:'抽獎'}).count,7);
