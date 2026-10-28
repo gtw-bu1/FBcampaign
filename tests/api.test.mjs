@@ -96,6 +96,10 @@ test('Gemini key stays server-side and original assets never reach either model'
     assert.equal(sent.length,2);
     assert.ok(sent.every(x=>x.headers['x-goog-api-key']==='gemini-test-key'));
     assert.ok(!JSON.stringify(sent).includes('PRIVATE_ORIGINAL_ASSET'));
+    assert.match(sent[0].url,/\/v1beta\/models\/gemini-3\.8-flash:generateContent$/);
+    assert.equal(sent[0].body.generationConfig.thinkingConfig.thinkingLevel,'low');
+    assert.equal(sent[0].body.generationConfig.maxOutputTokens,4096);
+    assert.deepEqual(sent[0].body.generationConfig.responseFormat.text.schema.required,['hook','visual_direction']);
     assert.equal(sent[1].body.generationConfig.imageConfig.aspectRatio,'1:1');
     assert.ok(accepted.body.copy.includes(initial.conditions));
     const wide=response();
@@ -106,6 +110,25 @@ test('Gemini key stays server-side and original assets never reach either model'
     globalThis.fetch=oldFetch;
     if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
     if(oldOpenAI===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldOpenAI;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
+test('Gemini token cutoff reports an actionable message without requesting an image', async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';
+  process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  let calls=0;
+  globalThis.fetch=async()=>{calls++;return{ok:true,json:async()=>({candidates:[{finishReason:'MAX_TOKENS',content:{parts:[]}}]})};};
+  try{
+    const result=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body},result);
+    assert.equal(result.statusCode,502);
+    assert.match(result.body.error,/輸出中斷/);
+    assert.equal(calls,1);
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
     if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
   }
 });
