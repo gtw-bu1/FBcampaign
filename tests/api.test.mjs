@@ -21,19 +21,21 @@ test('AI hook cannot replace exact activity facts', () => {
 });
 
 test('API refuses requests before a server key is configured', async () => {
-  const oldKey = process.env.OPENAI_API_KEY;
+  const oldKey = process.env.OPENAI_API_KEY, oldGeminiKey = process.env.GEMINI_API_KEY;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.GEMINI_API_KEY;
   try {
     const result = response();
     await handler({ method: 'POST', headers: {}, body }, result);
     assert.equal(result.statusCode, 503);
     assert.match(result.body.error, /尚未啟用/);
-  } finally { if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey; }
+  } finally { if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey; if (oldGeminiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = oldGeminiKey; }
 });
 
 test('server authenticates and sends text only to image generation', async () => {
-  const oldKey = process.env.OPENAI_API_KEY, oldCode = process.env.FB_CAMPAIGN_ACCESS_CODE, oldFetch = globalThis.fetch;
+  const oldKey = process.env.OPENAI_API_KEY, oldGeminiKey = process.env.GEMINI_API_KEY, oldCode = process.env.FB_CAMPAIGN_ACCESS_CODE, oldFetch = globalThis.fetch;
   process.env.OPENAI_API_KEY = 'test-key';
+  delete process.env.GEMINI_API_KEY;
   process.env.FB_CAMPAIGN_ACCESS_CODE = 'test-access-code-at-least-24-chars';
   const sent = [];
   globalThis.fetch = async (url, options) => {
@@ -64,6 +66,46 @@ test('server authenticates and sends text only to image generation', async () =>
   } finally {
     globalThis.fetch = oldFetch;
     if (oldKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = oldKey;
+    if (oldGeminiKey === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = oldGeminiKey;
     if (oldCode === undefined) delete process.env.FB_CAMPAIGN_ACCESS_CODE; else process.env.FB_CAMPAIGN_ACCESS_CODE = oldCode;
+  }
+});
+
+test('Gemini key stays server-side and original assets never reach either model', async () => {
+  const oldKey=process.env.GEMINI_API_KEY, oldOpenAI=process.env.OPENAI_API_KEY, oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE, oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';
+  process.env.OPENAI_API_KEY='unused-openai-key';
+  process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const sent=[];
+  globalThis.fetch=async (url,options)=>{
+    sent.push({url,headers:options.headers,body:JSON.parse(options.body)});
+    const payload=url.includes('gemini-3.8-flash:')
+      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'一起來拿好禮吧！',visual_direction:'柔和星空與暖光'})}]}}]}
+      : {candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]};
+    return {ok:true,json:async()=>payload};
+  };
+  try{
+    const denied=response();
+    await handler({method:'POST',headers:{'x-access-code':'wrong'},body},denied);
+    assert.equal(denied.statusCode,401);
+    assert.equal(sent.length,0);
+    const accepted=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,assets:['PRIVATE_ORIGINAL_ASSET']}},accepted);
+    assert.equal(accepted.statusCode,200);
+    assert.equal(accepted.body.provider,'gemini');
+    assert.equal(sent.length,2);
+    assert.ok(sent.every(x=>x.headers['x-goog-api-key']==='gemini-test-key'));
+    assert.ok(!JSON.stringify(sent).includes('PRIVATE_ORIGINAL_ASSET'));
+    assert.equal(sent[1].body.generationConfig.imageConfig.aspectRatio,'1:1');
+    assert.ok(accepted.body.copy.includes(initial.conditions));
+    const wide=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,size:'1200x628'}},wide);
+    assert.equal(wide.statusCode,200);
+    assert.equal(sent[3].body.generationConfig.imageConfig.aspectRatio,'16:9');
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldOpenAI===undefined)delete process.env.OPENAI_API_KEY;else process.env.OPENAI_API_KEY=oldOpenAI;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
   }
 });
