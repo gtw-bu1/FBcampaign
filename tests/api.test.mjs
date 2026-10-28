@@ -148,14 +148,59 @@ test('full AI poster sends only a compressed composition and returns a finished 
   };
   try{
     const result=response();
-    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID',assets:['ORIGINAL_ASSET_BYTES']}},result);
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID',assetReferences:[{role:'角色',label:'主角',dataUrl:'data:image/jpeg;base64,BAUG'}],assets:['ORIGINAL_ASSET_BYTES']}},result);
     assert.equal(result.statusCode,200);
     assert.equal(result.body.backgroundDataUrl,undefined);
     assert.equal(result.body.posterDataUrl,'data:image/png;base64,AQID');
     assert.equal(sent.length,2);
     assert.equal(sent[1].body.contents[0].parts[1].inlineData.data,'AQID');
+    assert.equal(sent[1].body.contents[0].parts[2].inlineData.data,'BAUG');
+    assert.match(sent[1].body.contents[0].parts[0].text,/dominant focal point/);
     assert.match(sent[1].body.contents[0].parts[0].text,/FINISHED advertisement/);
     assert.ok(!JSON.stringify(sent).includes('ORIGINAL_ASSET_BYTES'));
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
+test('AI opening alternatives return three editable copies without an image call',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';
+  process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const sent=[];
+  globalThis.fetch=async(url,options)=>{sent.push({url,body:JSON.parse(options.body)});return{ok:true,json:async()=>({candidates:[{content:{parts:[{text:JSON.stringify({hooks:['月光帶來驚喜，讓我們一起收藏這份好禮！','這次的小驚喜，正等著大家來揭開序幕～','好禮悄悄登場，快跟我們一起看看吧！']})}]}}]})};};
+  try{
+    const result=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'copy-alternatives',currentHook:'舊開場'}},result);
+    assert.equal(result.statusCode,200);
+    assert.equal(result.body.drafts.length,3);
+    assert.equal(result.body.posterDataUrl,undefined);
+    assert.equal(sent.length,1);
+    assert.ok(result.body.drafts.every(x=>x.opening && !x.copy));
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
+test('image refinement edits the existing poster without generating new copy',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';
+  process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const sent=[];
+  globalThis.fetch=async(url,options)=>{sent.push({url,body:JSON.parse(options.body)});return{ok:true,json:async()=>({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]})};};
+  try{
+    const result=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'edit-image',posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID',editInstruction:'把角色放大'}},result);
+    assert.equal(result.statusCode,200);
+    assert.equal(result.body.posterDataUrl,'data:image/png;base64,AQID');
+    assert.equal(result.body.copy,undefined);
+    assert.equal(sent.length,1);
+    assert.match(sent[0].body.contents[0].parts[0].text,/把角色放大/);
+    assert.equal(sent[0].body.contents[0].parts[1].inlineData.data,'AQID');
   }finally{
     globalThis.fetch=oldFetch;
     if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
