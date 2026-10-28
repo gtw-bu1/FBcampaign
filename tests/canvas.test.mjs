@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {initial,defaultStyle} from '../src/core.mjs';
-import {renderPoster} from '../src/canvas.mjs';
+import {renderPoster,renderGeneratedPoster} from '../src/canvas.mjs';
 
 function fakeCanvas(){
  const written=[];
@@ -29,5 +29,17 @@ test('asset name is drawn only when requested',async()=>{
   assert.equal(hidden.canvas.height,628);
   assert.ok(!hidden.written.includes('my-original.png'));
   assert.ok(shown.written.includes('my-original.png'));
+ }finally{globalThis.Image=oldImage;}
+});
+
+test('finished AI poster is drawn directly without program text overlays',async()=>{
+ const oldImage=globalThis.Image;
+ globalThis.Image=class{width=1024;height=1024;set src(_value){this.onload();}};
+ try{
+  const {written,canvas}=fakeCanvas();
+  await renderGeneratedPoster(canvas,'1200x1200','data:image/png;base64,AQID');
+  assert.equal(canvas.width,1200);
+  assert.equal(canvas.height,1200);
+  assert.deepEqual(written,[]);
  }finally{globalThis.Image=oldImage;}
 });

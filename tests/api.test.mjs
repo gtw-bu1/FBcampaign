@@ -12,6 +12,8 @@ test('request accepts supported content and rejects unknown size', () => {
   assert.equal(validateRequest(body), '');
   assert.equal(validateRequest({...body,activity:{...initial,cta:''}}),'');
   assert.match(validateRequest({ ...body, size: '4000x4000' }), /尺寸/);
+  assert.equal(validateRequest({...body,posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID'}),'');
+  assert.match(validateRequest({...body,posterMode:'full-ai'}),/參考圖/);
 });
 
 test('AI hook cannot replace exact activity facts', () => {
@@ -126,6 +128,34 @@ test('Gemini token cutoff reports an actionable message without requesting an im
     assert.equal(result.statusCode,502);
     assert.match(result.body.error,/輸出中斷/);
     assert.equal(calls,1);
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
+test('full AI poster sends only a compressed composition and returns a finished image',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';
+  process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const sent=[];
+  globalThis.fetch=async(url,options)=>{
+    sent.push({url,body:JSON.parse(options.body)});
+    return {ok:true,json:async()=>url.includes('gemini-3.8-flash:')
+      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'月光灑下來，今晚的驚喜正等著大家一起收藏！',visual_direction:'月光與暖色節慶'} )}]}}]}
+      : {candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]}};
+  };
+  try{
+    const result=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID',assets:['ORIGINAL_ASSET_BYTES']}},result);
+    assert.equal(result.statusCode,200);
+    assert.equal(result.body.backgroundDataUrl,undefined);
+    assert.equal(result.body.posterDataUrl,'data:image/png;base64,AQID');
+    assert.equal(sent.length,2);
+    assert.equal(sent[1].body.contents[0].parts[1].inlineData.data,'AQID');
+    assert.match(sent[1].body.contents[0].parts[0].text,/FINISHED advertisement/);
+    assert.ok(!JSON.stringify(sent).includes('ORIGINAL_ASSET_BYTES'));
   }finally{
     globalThis.fetch=oldFetch;
     if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
