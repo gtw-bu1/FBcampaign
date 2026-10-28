@@ -49,7 +49,7 @@ export default function PerformancePanel({activity,embedded=false}){
  const difficultyPicker=(value,onChange)=><select value={value} onChange={onChange}><option value="">請選擇對照類型</option>{value==='未分類'&&<option value="未分類">未分類，請補選</option>}{DIFFICULTY_OPTIONS.map(x=><option key={x.label}>{x.label}</option>)}</select>;
  const rewardPicker=(value,onChange)=><select value={value} onChange={onChange}><option value="">請選擇對照類型</option>{value==='未分類'&&<option value="未分類">未分類，請補選</option>}{REWARD_CATEGORIES.map(x=><option key={x.label}>{x.label}</option>)}</select>;
  return <section className={embedded?'card performance-card embedded':'card performance-card'}>
-  <div className="section-title"><span className="step">預</span><h2>成效預估</h2><span className="required">依歷史資料估算</span></div>
+  <div className="section-title"><span className="step">預</span><h2>成效預估</h2><span className="required">依歷史資料估算・非 AI</span></div>
   <p className="muted">先確認這檔活動的規模，再用過往活動估算參與人數。沒有足夠資料時不會產生數字。</p>
   <div className="performance-subtitle">① 判定活動規模</div>
   <p className="muted">以下依活動文字提出初判；請用對照表選擇最貼近的類型。若有多項參加條件，選參加者必須完成的最高門檻。</p>
