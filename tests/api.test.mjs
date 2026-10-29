@@ -23,6 +23,14 @@ test('AI hook cannot replace exact activity facts', () => {
   assert.ok(copy.endsWith('#CSO絕對武力 #限時好禮 #自訂活動'));
 });
 
+test('public copy has a fixed title, readable opening, polished participation and closing',()=>{
+  const copy=composeCopy(initial,defaultStyle,'秋天的驚喜來了！快跟朋友一起看看吧！','每天完成任務，再累積登入 7 天，就能領取好禮唷！','快約朋友一起展開秋日冒險吧！');
+  assert.match(copy,/^【秋日冒險・好禮集結】限定冒險禮盒送給你！\n秋天的驚喜來了！\n快跟朋友一起看看吧！ ✨/u);
+  assert.match(copy,/🌟 參加方式\n每天完成任務，再累積登入 7 天/);
+  assert.doesNotMatch(copy,/🌟 參加方式\n活動期間完成每日任務，累積登入/);
+  assert.match(copy,/💛 快約朋友一起展開秋日冒險吧！/);
+});
+
 test('API refuses requests before a server key is configured', async () => {
   const oldKey = process.env.OPENAI_API_KEY, oldGeminiKey = process.env.GEMINI_API_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -44,7 +52,7 @@ test('server authenticates and sends text only to image generation', async () =>
   globalThis.fetch = async (url, options) => {
     sent.push({ url, body: JSON.parse(options.body) });
     const payload = url.endsWith('/responses')
-      ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ hook: '好禮等你拿！', visual_direction: '柔和暖橘光影' }) }] }] }
+      ? { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify({ hook: '好禮等你拿！', participation:'活動期間記得完成每日任務，累積登入 7 天後就能領取唷！',closing:'快來開啟秋日冒險，把好禮帶回家吧！', visual_direction: '柔和暖橘光影' }) }] }] }
       : { data: [{ b64_json: 'AQID' }] };
     return { ok: true, json: async () => payload };
   };
@@ -61,7 +69,9 @@ test('server authenticates and sends text only to image generation', async () =>
     assert.equal(sent.length, 2);
     assert.ok(!JSON.stringify(sent).includes('PRIVATE_ORIGINAL_ASSET'));
     assert.equal(sent[1].body.size, '1024x1024');
-    assert.ok(accepted.body.copy.includes(initial.conditions));
+    assert.match(accepted.body.copy,/【秋日冒險・好禮集結】限定冒險禮盒送給你！/);
+    assert.match(accepted.body.copy,/累積登入 7 天/);
+    assert.doesNotMatch(accepted.body.copy,/📌 參加方式\n活動期間完成每日任務/);
     const wide = response();
     await handler({ method: 'POST', headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE }, body: { ...body, size: '1200x628' } }, wide);
     assert.equal(wide.statusCode, 200);
@@ -83,7 +93,7 @@ test('Gemini key stays server-side and original assets never reach either model'
   globalThis.fetch=async (url,options)=>{
     sent.push({url,headers:options.headers,body:JSON.parse(options.body)});
     const payload=url.includes('gemini-3.8-flash:')
-      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'一起來拿好禮吧！',visual_direction:'柔和星空與暖光'})}]}}]}
+      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'一起來拿好禮吧！',participation:'每天完成任務，再累積登入 7 天，就能開心領取獎勵！',closing:'邀請朋友一起展開秋日冒險吧！',visual_direction:'柔和星空與暖光'})}]}}]}
       : {candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]};
     return {ok:true,json:async()=>payload};
   };
@@ -102,9 +112,10 @@ test('Gemini key stays server-side and original assets never reach either model'
     assert.match(sent[0].url,/\/v1beta\/models\/gemini-3\.8-flash:generateContent$/);
     assert.equal(sent[0].body.generationConfig.thinkingConfig.thinkingLevel,'low');
     assert.equal(sent[0].body.generationConfig.maxOutputTokens,4096);
-    assert.deepEqual(sent[0].body.generationConfig.responseFormat.text.schema.required,['hook','visual_direction']);
+    assert.deepEqual(sent[0].body.generationConfig.responseFormat.text.schema.required,['hook','participation','closing','visual_direction']);
     assert.equal(sent[1].body.generationConfig.imageConfig.aspectRatio,'1:1');
-    assert.ok(accepted.body.copy.includes(initial.conditions));
+    assert.match(accepted.body.copy,/每天完成任務，再累積登入 7 天/);
+    assert.match(accepted.body.copy,/邀請朋友一起展開秋日冒險吧/);
     const wide=response();
     await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,size:'1200x628'}},wide);
     assert.equal(wide.statusCode,200);
@@ -144,7 +155,7 @@ test('full AI poster sends only a compressed composition and returns a finished 
   globalThis.fetch=async(url,options)=>{
     sent.push({url,body:JSON.parse(options.body)});
     return {ok:true,json:async()=>url.includes('gemini-3.8-flash:')
-      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'月光灑下來，今晚的驚喜正等著大家一起收藏！',visual_direction:'月光與暖色節慶'} )}]}}]}
+      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'月光灑下來，今晚的驚喜正等著大家一起收藏！',participation:'活動期間先完成每日任務，再累積登入 7 天，獎勵就等你領取！',closing:'快邀朋友一起來收藏秋日好禮吧！',visual_direction:'月光與暖色節慶'} )}]}}]}
       : {candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]}};
   };
   try{
