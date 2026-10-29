@@ -1,5 +1,10 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.8.0',date:'2026-10-29',items:[
+    '重新生成兩種尺寸圖片時，可另外勾選新的圖片氛圍，原有文案保留。',
+    '改由 AI 設計人物、背景與文字融合的完整海報，強調更大的人物與豐富繽紛的場景。',
+    '容許角色姿勢配合畫面調整，並在產圖後比對上傳角色的服裝；疑似改裝時保留原圖。'
+  ]},
   {version:'1.7.0',date:'2026-10-29',items:[
     'AI 為正方形與橫式海報分別選主標字體風格、色彩、裝飾與文字位置。',
     '主角色原圖置中放大，只略過透明空白，不重畫服裝或人物。',

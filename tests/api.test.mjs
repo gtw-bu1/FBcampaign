@@ -255,6 +255,36 @@ test('second size generates its own layout without replacing copy',async()=>{
   }
 });
 
+test('new moods reach the full poster prompt and changed outfits are rejected',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';
+  process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const assetReferences=[{role:'角色',label:'維拉',dataUrl:'data:image/jpeg;base64,AQID'}];
+  const request={...body,style:{...defaultStyle,visualMood:'夢幻光影、節慶紙雕、未來科技、清新插畫、高級質感、霓虹電玩、星光宇宙、暖色手繪'},action:'generate-size',posterMode:'full-ai',outfitLock:true,referencePoster:'data:image/jpeg;base64,AQID',assetReferences,visualDirection:'繽紛的中秋場景',freshVariation:true};
+  assert.equal(validateRequest(request),'');
+  assert.match(validateRequest({...request,assetReferences:[]}),/角色圖片/);
+  const calls=[];
+  globalThis.fetch=async(url,options)=>{
+    calls.push({url,body:JSON.parse(options.body)});
+    return {ok:true,json:async()=>url.includes('gemini-3.8-flash:')?{candidates:[{content:{parts:[{text:JSON.stringify({outfitPreserved:false,reason:'服裝顏色改變'})}]}}]}:{candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]}};
+  };
+  try{
+    const result=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:request},result);
+    assert.equal(result.statusCode,502);
+    assert.match(result.body.error,/服裝/);
+    assert.equal(calls.length,2);
+    assert.match(calls[0].body.contents[0].parts[0].text,/夢幻光影、節慶紙雕/);
+    assert.match(calls[0].body.contents[0].parts[0].text,/LARGE and central/);
+    assert.equal(calls[0].body.contents[0].parts.length,3);
+    assert.equal(calls[1].body.contents[0].parts.length,3);
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
 test('second size can generate an AI background without assets or poster reference',async()=>{
   const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
   process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
