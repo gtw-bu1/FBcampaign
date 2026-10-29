@@ -8,3 +8,6 @@
 .preview-method{margin:0 26px 14px;padding:8px 11px;border-radius:7px;background:#f7f4ef;color:#76604b;font-size:11px;line-height:1.6}.copy-method{margin:0 0 13px;background:#eeece6}
 .image-stale{margin:0 26px 12px}.image-edit{padding:18px 26px 22px;background:#fffaf5;border-top:1px solid #eee3d8}.image-edit .field{margin-bottom:8px}.image-edit textarea{min-height:90px}.image-edit .muted{margin:4px 0 12px}.image-edit .generate{padding:13px 15px}
 .image-undo{margin-top:9px;width:100%}
+.remembered-login{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0;padding:11px 12px;border-radius:8px;background:#f2f8ef;color:#53764d;font-size:11px}.remembered-login .secondary{flex:none}
+.canvas-area{height:clamp(340px,calc(100vw - 20px),630px)}
+

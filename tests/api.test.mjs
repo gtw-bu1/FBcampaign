@@ -14,6 +14,7 @@ test('request accepts supported content and rejects unknown size', () => {
   assert.match(validateRequest({ ...body, size: '4000x4000' }), /尺寸/);
   assert.equal(validateRequest({...body,posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID'}),'');
   assert.match(validateRequest({...body,posterMode:'full-ai'}),/參考圖/);
+  assert.equal(validateRequest({...body,action:'generate-size',posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID',visualDirection:'月光與暖色節慶'}),'');
 });
 
 test('AI hook cannot replace exact activity facts', () => {
@@ -207,3 +208,50 @@ test('image refinement edits the existing poster without generating new copy',as
     if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
   }
 });
+
+test('second size generates its own layout without replacing copy',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const sent=[];
+  globalThis.fetch=async(url,options)=>{sent.push({url,body:JSON.parse(options.body)});return{ok:true,json:async()=>({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]})};};
+  try{
+    const result=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'generate-size',posterMode:'full-ai',size:'1200x628',referencePoster:'data:image/jpeg;base64,AQID',visualDirection:'月光與暖色節慶'}},result);
+    assert.equal(result.statusCode,200);
+    assert.equal(result.body.posterDataUrl,'data:image/png;base64,AQID');
+    assert.equal(result.body.copy,undefined);
+    assert.equal(sent.length,1);
+    assert.equal(sent[0].body.generationConfig.imageConfig.aspectRatio,'16:9');
+    assert.match(sent[0].body.contents[0].parts[0].text,/companion wide landscape/);
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
+test('remembered sign-in uses an HttpOnly cookie and can be forgotten',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  globalThis.fetch=async()=>({ok:true,json:async()=>({candidates:[{content:{parts:[{text:JSON.stringify({hooks:['開場一，歡迎來到秋日的冒險！','開場二，驚喜正在悄悄登場！','開場三，好禮正在等著大家！']})}]}}]})});
+  try{
+    const login=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'copy-alternatives'}},login);
+    assert.equal(login.statusCode,200);
+    const cookie=login.headers['Set-Cookie'];
+    assert.match(cookie,/HttpOnly; Secure; SameSite=Strict/);
+    assert.ok(!cookie.includes(process.env.FB_CAMPAIGN_ACCESS_CODE));
+    const cookieHeader=cookie.split(';')[0];
+    const status=response();await handler({method:'GET',headers:{cookie:cookieHeader}},status);
+    assert.equal(status.body.remembered,true);
+    const accepted=response();await handler({method:'POST',headers:{cookie:cookieHeader},body:{...body,action:'copy-alternatives'}},accepted);
+    assert.equal(accepted.statusCode,200);
+    const logout=response();await handler({method:'DELETE',headers:{cookie:cookieHeader}},logout);
+    assert.match(logout.headers['Set-Cookie'],/Max-Age=0/);
+  }finally{
+    globalThis.fetch=oldFetch;
+    if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
+    if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
+  }
+});
+
