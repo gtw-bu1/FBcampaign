@@ -43,3 +43,13 @@ test('finished AI poster is drawn directly without program text overlays',async(
   assert.deepEqual(written,[]);
  }finally{globalThis.Image=oldImage;}
 });
+
+test('original character image is placed unchanged after AI art on both sizes',async()=>{
+ const oldImage=globalThis.Image,draws=[];
+ globalThis.Image=class{width=100;height=200;set src(value){this.source=value;this.onload();}};
+ try{for(const size of ['1200x1200','1200x628']){const canvas={width:0,height:0,getContext:()=>({drawImage:(image,...box)=>draws.push({size,source:image.source,box})})};await renderGeneratedPoster(canvas,size,'data:image/png;base64,AQID',[{role:'角色',url:'original:character-a'},{role:'角色',url:'original:character-b'}]);}
+  assert.deepEqual(draws.map(x=>x.source),['data:image/png;base64,AQID','original:character-a','original:character-b','data:image/png;base64,AQID','original:character-a','original:character-b']);
+  assert.ok(draws.filter(x=>x.source.startsWith('original:')).every(x=>x.box[2]>0&&x.box[3]>0));
+ }finally{globalThis.Image=oldImage;}
+});
+

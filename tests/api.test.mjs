@@ -167,7 +167,7 @@ test('full AI poster sends only a compressed composition and returns a finished 
     assert.equal(sent.length,2);
     assert.equal(sent[1].body.contents[0].parts[1].inlineData.data,'AQID');
     assert.equal(sent[1].body.contents[0].parts[2].inlineData.data,'BAUG');
-    assert.match(sent[1].body.contents[0].parts[0].text,/dominant focal point/);
+    assert.match(sent[1].body.contents[0].parts[0].text,/hero asset visibly larger/);
     assert.match(sent[1].body.contents[0].parts[0].text,/FINISHED advertisement/);
     assert.ok(!JSON.stringify(sent).includes('ORIGINAL_ASSET_BYTES'));
   }finally{
@@ -175,6 +175,13 @@ test('full AI poster sends only a compressed composition and returns a finished 
     if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
     if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;
   }
+});
+
+test('preserved character mode asks AI to leave room without redrawing a costume',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  const sent=[];globalThis.fetch=async(url,options)=>{sent.push({url,body:JSON.parse(options.body)});return{ok:true,json:async()=>url.includes('gemini-3.8-flash:')?{candidates:[{content:{parts:[{text:JSON.stringify({hook:'秋日驚喜來了！快一起看看吧！',participation:'每天完成任務，累積登入 7 天就能領取！',closing:'快來展開秋日冒險吧！',visual_direction:'暖色光影'})}]}}]}:{candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]}};};
+  try{const result=response();await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,posterMode:'full-ai',preserveCharacter:true,referencePoster:'data:image/jpeg;base64,AQID'}},result);assert.equal(result.statusCode,200);assert.match(sent[1].body.contents[0].parts[0].text,/Do not draw, redraw, modify, or invent any character/);assert.equal(sent[1].body.contents[0].parts.length,2);}finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;}
 });
 
 test('AI opening alternatives return three editable copies without an image call',async()=>{
