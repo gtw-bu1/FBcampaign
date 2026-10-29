@@ -1,5 +1,10 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.5.0',date:'2026-10-29',items:[
+    '圖片下方新增「重新生成兩種尺寸圖片」，保留目前文案與角色原圖。',
+    '角色預留區會遮住 AI 底圖中多畫的人物，再合成上傳的角色素材。',
+    '加強生成與微調指示，避免 AI 繪製人物或改動服裝。'
+  ]},
   {version:'1.4.0',date:'2026-10-29',items:[
     '版本紀錄改成獨立頁面，可從右上角切換查看。',
     'AI 生成入口改為明顯按鈕。',

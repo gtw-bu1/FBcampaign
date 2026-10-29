@@ -241,6 +241,11 @@ test('second size generates its own layout without replacing copy',async()=>{
     assert.equal(sent.length,1);
     assert.equal(sent[0].body.generationConfig.imageConfig.aspectRatio,'16:9');
     assert.match(sent[0].body.contents[0].parts[0].text,/companion wide landscape/);
+    const fresh=response();
+    await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'generate-size',posterMode:'full-ai',size:'1200x628',referencePoster:'data:image/jpeg;base64,AQID',visualDirection:'月光與暖色節慶',preserveCharacter:true,freshVariation:true}},fresh);
+    assert.equal(fresh.statusCode,200);
+    assert.match(sent[1].body.contents[0].parts[0].text,/NEW, distinct design variation/);
+    assert.match(sent[1].body.contents[0].parts[0].text,/Do not draw, redraw, alter or invent any character/);
   }finally{
     globalThis.fetch=oldFetch;
     if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;
