@@ -1,5 +1,11 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.7.0',date:'2026-10-29',items:[
+    'AI 為正方形與橫式海報分別選主標字體風格、色彩、裝飾與文字位置。',
+    '主角色原圖置中放大，只略過透明空白，不重畫服裝或人物。',
+    '背景改為豐富的邊緣裝飾與明亮中央，海報文字仍保留正確字形。',
+    '重新生成圖片時可重新取得 AI 版型，文案與原圖素材保留。'
+  ]},
   {version:'1.6.0',date:'2026-10-29',items:[
     '移除造成右側大片深色空白的角色遮罩。',
     'AI 改為只創作背景；角色、獎勵、Logo 與海報文字由網站使用原檔與正確文字排版。',

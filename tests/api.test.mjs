@@ -93,7 +93,7 @@ test('Gemini key stays server-side and original assets never reach either model'
   globalThis.fetch=async (url,options)=>{
     sent.push({url,headers:options.headers,body:JSON.parse(options.body)});
     const payload=url.includes('gemini-3.8-flash:')
-      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'一起來拿好禮吧！',participation:'每天完成任務，再累積登入 7 天，就能開心領取獎勵！',closing:'邀請朋友一起展開秋日冒險吧！',visual_direction:'柔和星空與暖光'})}]}}]}
+      ? {candidates:[{content:{parts:[{text:JSON.stringify({hook:'一起來拿好禮吧！',participation:'每天完成任務，再累積登入 7 天，就能開心領取獎勵！',closing:'邀請朋友一起展開秋日冒險吧！',visual_direction:'柔和星空與暖光',poster_design:{square:{font:'editorial',color:'gold',ornament:'sparkles',titleAlign:'center',textSide:'left'},wide:{font:'neon',color:'ice',ornament:'light-trails',titleAlign:'left',textSide:'right'}}})}]}}]}
       : {candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]};
     return {ok:true,json:async()=>payload};
   };
@@ -112,7 +112,9 @@ test('Gemini key stays server-side and original assets never reach either model'
     assert.match(sent[0].url,/\/v1beta\/models\/gemini-3\.8-flash:generateContent$/);
     assert.equal(sent[0].body.generationConfig.thinkingConfig.thinkingLevel,'low');
     assert.equal(sent[0].body.generationConfig.maxOutputTokens,4096);
-    assert.deepEqual(sent[0].body.generationConfig.responseFormat.text.schema.required,['hook','participation','closing','visual_direction']);
+    assert.deepEqual(sent[0].body.generationConfig.responseFormat.text.schema.required,['hook','participation','closing','visual_direction','poster_design']);
+    assert.equal(accepted.body.posterDesign['1200x1200'].font,'editorial');
+    assert.equal(accepted.body.posterDesign['1200x628'].textSide,'right');
     assert.equal(sent[1].body.generationConfig.imageConfig.aspectRatio,'1:1');
     assert.match(accepted.body.copy,/每天完成任務，再累積登入 7 天/);
     assert.match(accepted.body.copy,/邀請朋友一起展開秋日冒險吧/);
@@ -258,6 +260,13 @@ test('second size can generate an AI background without assets or poster referen
   process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
   let prompt='';globalThis.fetch=async(_url,options)=>{const body=JSON.parse(options.body);prompt=body.contents[0].parts[0].text;return{ok:true,json:async()=>({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]})};};
   try{const result=response();await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'generate-size',posterMode:'composite',size:'1200x628',visualDirection:'秋日暖光',freshVariation:true}},result);assert.equal(result.statusCode,200);assert.equal(result.body.backgroundDataUrl,'data:image/png;base64,AQID');assert.equal(result.body.posterDataUrl,undefined);assert.match(prompt,/Absolutely NO people, characters/);}finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;}
+});
+
+test('AI layout design can be regenerated without rewriting copy or images',async()=>{
+ const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+ process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+ globalThis.fetch=async()=>({ok:true,json:async()=>({candidates:[{content:{parts:[{text:JSON.stringify({poster_design:{square:{font:'soft',color:'rose',ornament:'petals',titleAlign:'center',textSide:'left'},wide:{font:'modern',color:'ivory',ornament:'minimal',titleAlign:'left',textSide:'right'}}})}]}}]})});
+ try{const result=response();await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'design-layout'}},result);assert.equal(result.statusCode,200);assert.equal(result.body.posterDesign['1200x628'].textSide,'right');assert.equal(result.body.copy,undefined);assert.equal(result.body.backgroundDataUrl,undefined);}finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;}
 });
 
 test('remembered sign-in uses an HttpOnly cookie and can be forgotten',async()=>{

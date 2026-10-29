@@ -1,32 +1,37 @@
 import {contain} from './core.mjs';
+import {normalizePosterDesign} from './poster-design.mjs';
 
+const colors={gold:{title:'#fff0c3',accent:'#e9c079'},ivory:{title:'#fffaf0',accent:'#e9d8bd'},rose:{title:'#ffe4e8',accent:'#f3a7bc'},ice:{title:'#e8f7ff',accent:'#9dd5f4'}};
+const fonts={editorial:'"Noto Serif TC","PMingLiU",serif',modern:'"Noto Sans TC","Microsoft JhengHei",sans-serif',soft:'"Noto Serif TC","PMingLiU",serif',neon:'"Noto Sans TC","Microsoft JhengHei",sans-serif'};
 function loaded(src,label){return new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(Error(`${label}無法載入，請重新上傳。`));image.src=src;});}
-function textLines(ctx,value,maxWidth){const rows=[];for(const paragraph of String(value||'').split('\n')){let row='';for(const char of paragraph){if(row&&ctx.measureText(row+char).width>maxWidth){rows.push(row);row='';}row+=char;}rows.push(row);}return rows;}
-function drawText(ctx,value,x,y,w,h,maxSize,minSize,color,weight=700){let size=maxSize,rows=[];for(;size>=minSize;size--){ctx.font=`${weight} ${size}px "Microsoft JhengHei", "Noto Sans TC", sans-serif`;rows=textLines(ctx,value,w);if(rows.length*size*1.28<=h)break;}if(rows.length*size*1.28>h)throw Error('圖片文字太多，請縮短主標或獎勵後再試。');ctx.fillStyle=color;ctx.textBaseline='top';rows.forEach((row,index)=>ctx.fillText(row,x,y+index*size*1.28));}
-function rounded(ctx,x,y,w,h,r,fill,stroke=''){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();}}
-async function asset(ctx,item,box){const img=await loaded(item.url,'素材');const placed=contain(img.width,img.height,box.x,box.y,box.w,box.h);ctx.drawImage(img,placed.x,placed.y,placed.w,placed.h);return placed;}
+function rows(ctx,value,width){const result=[];for(const paragraph of String(value||'').split('\n')){let line='';for(const char of paragraph){if(line&&ctx.measureText(line+char).width>width){result.push(line);line='';}line+=char;}result.push(line);}return result;}
+function write(ctx,value,box,{size=28,min=14,color='#fff',weight=700,font=fonts.modern,align='left',glow=0}={}){let lines=[];for(;size>=min;size--){ctx.font=`${weight} ${size}px ${font}`;lines=rows(ctx,value,box.w);if(lines.length*size*1.25<=box.h)break;}if(lines.length*size*1.25>box.h)throw Error('圖片文字過長，請縮短主標或獎勵後重試。');ctx.fillStyle=color;ctx.textBaseline='top';ctx.textAlign=align;ctx.shadowColor=glow?color:'transparent';ctx.shadowBlur=glow;const x=align==='center'?box.x+box.w/2:box.x;lines.forEach((line,i)=>ctx.fillText(line,x,box.y+i*size*1.25));ctx.shadowBlur=0;ctx.textAlign='left';}
+function box(ctx,x,y,w,h,r,fill,stroke){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=2;ctx.stroke();}}
+function visibleBounds(image){if(!globalThis.document?.createElement)return{x:0,y:0,w:image.width,h:image.height};try{const probe=document.createElement('canvas');probe.width=Math.min(256,image.width);probe.height=Math.min(256,image.height);const p=probe.getContext('2d',{willReadFrequently:true});p.drawImage(image,0,0,probe.width,probe.height);const data=p.getImageData(0,0,probe.width,probe.height).data;let left=probe.width,top=probe.height,right=-1,bottom=-1;for(let y=0;y<probe.height;y++)for(let x=0;x<probe.width;x++)if(data[(y*probe.width+x)*4+3]>3){left=Math.min(left,x);top=Math.min(top,y);right=Math.max(right,x);bottom=Math.max(bottom,y);}if(right<left)return{x:0,y:0,w:image.width,h:image.height};const sx=image.width/probe.width,sy=image.height/probe.height;return{x:Math.max(0,(left-1)*sx),y:Math.max(0,(top-1)*sy),w:Math.min(image.width,(right-left+3)*sx),h:Math.min(image.height,(bottom-top+3)*sy)};}catch{return{x:0,y:0,w:image.width,h:image.height};}}
+async function asset(ctx,item,slot){const image=await loaded(item.url,'素材'),source=visibleBounds(image);const at=contain(source.w,source.h,slot.x,slot.y,slot.w,slot.h);ctx.drawImage(image,source.x,source.y,source.w,source.h,at.x,at.y,at.w,at.h);return at;}
+function ornament(ctx,type,color,w,h){if(type==='minimal')return;ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;for(let i=0;i<10;i++){const x=70+(i*167%(w-140)),y=60+(i*283%(h-120));if(type==='sparkles'){ctx.beginPath();ctx.moveTo(x,y-7);ctx.lineTo(x,y+7);ctx.moveTo(x-7,y);ctx.lineTo(x+7,y);ctx.stroke();}else if(type==='petals'){ctx.beginPath();ctx.ellipse(x,y,4,10,.4,0,Math.PI*2);ctx.fill();}else{ctx.beginPath();ctx.arc(x,y,20+i*2,0,Math.PI*.38);ctx.stroke();}}}
 
-export async function renderSocialPoster(canvas,activity,assets,style,size,backgroundDataUrl=''){
-  const [w,h]=size.split('x').map(Number),wide=h<800;canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');
-  if(backgroundDataUrl){const image=await loaded(backgroundDataUrl,'AI 背景');const scale=Math.max(w/image.width,h/image.height),dw=image.width*scale,dh=image.height*scale;ctx.drawImage(image,(w-dw)/2,(h-dh)/2,dw,dh);}else{const base=ctx.createLinearGradient(0,0,w,h);base.addColorStop(0,'#2d3449');base.addColorStop(.58,'#6b5976');base.addColorStop(1,'#b38b80');ctx.fillStyle=base;ctx.fillRect(0,0,w,h);}
-  const veil=ctx.createLinearGradient(0,0,w,0);veil.addColorStop(0,'rgba(20,23,35,.91)');veil.addColorStop(wide?.55:.48,'rgba(20,23,35,.68)');veil.addColorStop(1,'rgba(20,23,35,.18)');ctx.fillStyle=veil;ctx.fillRect(0,0,w,h);
-  const bottom=ctx.createLinearGradient(0,h*.55,0,h);bottom.addColorStop(0,'rgba(15,18,28,0)');bottom.addColorStop(1,'rgba(15,18,28,.63)');ctx.fillStyle=bottom;ctx.fillRect(0,0,w,h);
-  const chars=assets.filter(x=>x.role==='角色'),others=assets.filter(x=>x.role!=='角色'&&x.role!=='Logo'),logos=assets.filter(x=>x.role==='Logo');
-  rounded(ctx,wide?60:68,wide?42:62,wide?176:192,wide?36:40,19,'rgba(255,255,255,.18)','rgba(255,255,255,.32)');
-  drawText(ctx,'限時活動',wide?76:84,wide?51:72,wide?148:164,26,18,14,'#fff4d9',700);
-  drawText(ctx,activity.headline?.trim()||activity.name,wide?60:68,wide?112:134,wide?590:1050,wide?142:165,wide?64:78,32,'#fff7e8',800);
-  if(activity.subtitle?.trim())drawText(ctx,activity.subtitle,wide?62:70,wide?266:302,wide?570:930,wide?45:52,wide?28:34,18,'#fce3ba',600);
-  rounded(ctx,wide?60:68,wide?326:366,wide?535:550,wide?41:47,12,'rgba(255,255,255,.15)');
-  drawText(ctx,`📅  ${activity.time}`,wide?78:88,wide?335:377,wide?500:510,wide?25:28,wide?22:24,16,'#fff9ed',600);
-  const card=wide?{x:60,y:390,w:590,h:126}:{x:68,y:860,w:560,h:160};
-  rounded(ctx,card.x,card.y,card.w,card.h,22,'rgba(255,250,239,.94)','rgba(255,255,255,.6)');
-  drawText(ctx,'🎁 活動獎勵',card.x+22,card.y+17,250,26,20,18,'#8b572e',800);
-  drawText(ctx,activity.rewards,card.x+22,card.y+(wide?49:52),others.length?card.w-180:card.w-44,card.h-(wide?58:66),wide?27:30,15,'#3b302b',700);
-  if(others.length){await asset(ctx,others[0],{x:card.x+card.w-147,y:card.y+16,w:125,h:card.h-32});if(activity.showAssetNames&&others[0].label)drawText(ctx,others[0].label,card.x+card.w-147,card.y+card.h-24,125,20,15,12,'#715b4c',500);}
-  if(chars.length){const zone=wide?{x:678,y:38,w:480,h:555}:{x:640,y:355,w:500,h:700};const cols=chars.length<=2?chars.length:Math.ceil(Math.sqrt(chars.length)),rows=Math.ceil(chars.length/cols);for(let i=0;i<chars.length;i++)await asset(ctx,chars[i],{x:zone.x+(i%cols)*zone.w/cols,y:zone.y+Math.floor(i/cols)*zone.h/rows,w:zone.w/cols,h:zone.h/rows});}
-  else if(others.length>1){await asset(ctx,others[1],wide?{x:720,y:90,w:370,h:390}:{x:710,y:365,w:390,h:380});}
-  if(logos.length)await asset(ctx,logos[0],wide?{x:1045,y:28,w:105,h:80}:{x:990,y:55,w:130,h:95});
-  if(activity.cta?.trim()){const x=wide?60:68,y=wide?544:1064,bw=wide?290:390,bh=wide?56:66;rounded(ctx,x,y,bw,bh,bh/2,style.accent||'#ef743c');drawText(ctx,activity.cta,x+28,y+(wide?14:18),bw-56,wide?30:34,wide?25:28,16,'#ffffff',800);}
-  return canvas;
+export async function renderSocialPoster(canvas,activity,assets,style,size,backgroundDataUrl='',rawDesign){
+ const [w,h]=size.split('x').map(Number),wide=h<800;canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d');
+ const design=normalizePosterDesign({[size]:rawDesign})[size],palette=colors[design.color],font=fonts[design.font];
+ if(globalThis.document?.fonts?.load)await Promise.allSettled([document.fonts.load(`800 72px ${font}`),document.fonts.load('700 26px "Noto Sans TC"')]);
+ if(backgroundDataUrl){const image=await loaded(backgroundDataUrl,'AI 背景');const scale=Math.max(w/image.width,h/image.height),dw=image.width*scale,dh=image.height*scale;ctx.drawImage(image,(w-dw)/2,(h-dh)/2,dw,dh);}else{const base=ctx.createLinearGradient(0,0,w,h);base.addColorStop(0,'#2d3146');base.addColorStop(.5,'#7b5978');base.addColorStop(1,'#a67f65');ctx.fillStyle=base;ctx.fillRect(0,0,w,h);}
+ const shade=ctx.createLinearGradient(0,0,w,0);shade.addColorStop(0,'rgba(9,12,23,.7)');shade.addColorStop(.29,'rgba(9,12,23,.32)');shade.addColorStop(.5,'rgba(9,12,23,.06)');shade.addColorStop(.72,'rgba(9,12,23,.30)');shade.addColorStop(1,'rgba(9,12,23,.68)');ctx.fillStyle=shade;ctx.fillRect(0,0,w,h);
+ const ground=ctx.createLinearGradient(0,h*.7,0,h);ground.addColorStop(0,'rgba(8,11,22,0)');ground.addColorStop(1,'rgba(8,11,22,.78)');ctx.fillStyle=ground;ctx.fillRect(0,0,w,h);ornament(ctx,design.ornament,palette.accent,w,h);
+ const chars=assets.filter(x=>x.role==='角色'),rewards=assets.filter(x=>x.role==='獎勵 ICON'||x.role==='道具'),logos=assets.filter(x=>x.role==='Logo');
+ const left=design.textSide==='left',titleX=wide?(left?55:850):70,titleW=wide?300:1060,titleY=wide?68:70,titleH=wide?200:180,titleAlign=wide?'left':design.titleAlign;
+ write(ctx,'限時活動',{x:titleX,y:wide?31:35,w:wide?230:1060,h:32},{size:18,min:16,color:palette.accent,weight:700,align:titleAlign});
+ write(ctx,activity.headline?.trim()||activity.name,{x:titleX,y:titleY,w:titleW,h:titleH},{size:wide?58:86,min:wide?30:40,color:palette.title,weight:design.font==='soft'?700:900,font,align:titleAlign,glow:design.font==='neon'?22:5});
+ if(activity.subtitle?.trim())write(ctx,activity.subtitle,{x:titleX,y:wide?275:242,w:titleW,h:wide?48:50},{size:wide?24:30,min:16,color:'#fff7eb',font:fonts.modern,align:titleAlign});
+ const underlineX=wide?titleX:(design.titleAlign==='center'?435:70);ctx.fillStyle=palette.accent;ctx.fillRect(underlineX,wide?258:295,wide?120:330,3);
+ const timeX=wide?titleX:70,timeY=wide?337:970,timeW=wide?300:520;write(ctx,`📅 ${activity.time}`,{x:timeX,y:timeY,w:timeW,h:wide?76:44},{size:wide?23:25,min:14,color:'#fff9ed',font:fonts.modern});
+ const rewardX=wide?(left?850:55):70,rewardY=wide?285:1030,rewardW=wide?300:690,rewardH=wide?200:112;box(ctx,rewardX,rewardY,rewardW,rewardH,18,'rgba(12,16,29,.70)',`rgba(255,255,255,.35)`);
+ write(ctx,'✦ 活動獎勵',{x:rewardX+20,y:rewardY+16,w:rewardW-40,h:30},{size:20,min:18,color:palette.accent,font:fonts.modern});
+ write(ctx,activity.rewards,{x:rewardX+20,y:rewardY+51,w:rewards.length?rewardW-(wide?145:175):rewardW-40,h:rewardH-58},{size:wide?24:28,min:14,color:'#fff8ea',font:fonts.modern});
+ if(rewards.length)await asset(ctx,rewards[0],{x:rewardX+rewardW-(wide?125:150),y:rewardY+(wide?65:18),w:wide?105:130,h:wide?115:82});
+ const hero=wide?{x:350,y:30,w:500,h:570}:{x:200,y:250,w:800,h:755};if(chars.length){const cols=chars.length<=2?chars.length:Math.ceil(Math.sqrt(chars.length)),rows=Math.ceil(chars.length/cols);for(let i=0;i<chars.length;i++)await asset(ctx,chars[i],{x:hero.x+(i%cols)*hero.w/cols,y:hero.y+Math.floor(i/cols)*hero.h/rows,w:hero.w/cols,h:hero.h/rows});}else if(rewards.length>1)await asset(ctx,rewards[1],hero);
+ if(logos.length)await asset(ctx,logos[0],wide?{x:1030,y:25,w:125,h:72}:{x:1010,y:35,w:130,h:90});
+ if(activity.cta?.trim()){const x=wide?titleX:810,y=wide?520:1062,bw=wide?270:320,bh=wide?64:64;box(ctx,x,y,bw,bh,32,palette.accent);write(ctx,activity.cta,{x:x+18,y:y+15,w:bw-36,h:36},{size:26,min:18,color:'#251d22',font:fonts.modern,align:'center',weight:800});}
+ return canvas;
 }
 
