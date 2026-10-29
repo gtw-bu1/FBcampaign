@@ -253,6 +253,13 @@ test('second size generates its own layout without replacing copy',async()=>{
   }
 });
 
+test('second size can generate an AI background without assets or poster reference',async()=>{
+  const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
+  process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';
+  let prompt='';globalThis.fetch=async(_url,options)=>{const body=JSON.parse(options.body);prompt=body.contents[0].parts[0].text;return{ok:true,json:async()=>({candidates:[{content:{parts:[{inlineData:{mimeType:'image/png',data:'AQID'}}]}}]})};};
+  try{const result=response();await handler({method:'POST',headers:{'x-access-code':process.env.FB_CAMPAIGN_ACCESS_CODE},body:{...body,action:'generate-size',posterMode:'composite',size:'1200x628',visualDirection:'秋日暖光',freshVariation:true}},result);assert.equal(result.statusCode,200);assert.equal(result.body.backgroundDataUrl,'data:image/png;base64,AQID');assert.equal(result.body.posterDataUrl,undefined);assert.match(prompt,/Absolutely NO people, characters/);}finally{globalThis.fetch=oldFetch;if(oldKey===undefined)delete process.env.GEMINI_API_KEY;else process.env.GEMINI_API_KEY=oldKey;if(oldCode===undefined)delete process.env.FB_CAMPAIGN_ACCESS_CODE;else process.env.FB_CAMPAIGN_ACCESS_CODE=oldCode;}
+});
+
 test('remembered sign-in uses an HttpOnly cookie and can be forgotten',async()=>{
   const oldKey=process.env.GEMINI_API_KEY,oldCode=process.env.FB_CAMPAIGN_ACCESS_CODE,oldFetch=globalThis.fetch;
   process.env.GEMINI_API_KEY='gemini-test-key';process.env.FB_CAMPAIGN_ACCESS_CODE='test-access-code-at-least-24-chars';

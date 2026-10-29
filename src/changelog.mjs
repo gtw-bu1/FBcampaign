@@ -1,5 +1,11 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.6.0',date:'2026-10-29',items:[
+    '移除造成右側大片深色空白的角色遮罩。',
+    'AI 改為只創作背景；角色、獎勵、Logo 與海報文字由網站使用原檔與正確文字排版。',
+    '重新設計正方形與橫式海報版型，讓主標、獎勵與角色保持可讀和完整。',
+    '圖片微調與重新生成只處理背景，保留素材、文字與社群文案。'
+  ]},
   {version:'1.5.0',date:'2026-10-29',items:[
     '圖片下方新增「重新生成兩種尺寸圖片」，保留目前文案與角色原圖。',
     '角色預留區會遮住 AI 底圖中多畫的人物，再合成上傳的角色素材。',
