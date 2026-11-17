@@ -8,8 +8,12 @@
 //   FB_PAGE_ACCESS_TOKEN     粉絲專頁存取權杖(建議用 Business Manager 的系統用戶權杖,不會過期)
 //   FB_CAMPAIGN_ACCESS_CODE  沿用現有的使用密碼,擋住非自己人
 //
-// 權杖需要的權限:pages_manage_posts、pages_read_engagement、
-// pages_manage_engagement、pages_read_user_engagement。
+// 權杖需要的權限:pages_manage_posts(發文)與 pages_read_engagement。
+// 官方的貼文指南列了四個(另含 pages_manage_engagement、pages_read_user_engagement),
+// 但那是「發文 + 留言 + 互動」全部操作的集合;本端點只打 /feed 與 /photos,前兩個就夠。
+// 注意:應用程式主控板「管理粉絲專頁所有內容」使用案例的清單裡沒有
+// pages_read_user_engagement 這一項(2026-11-17 實際操作),找不到就跳過,不要改加
+// pages_read_user_content——那是讀別人的留言內容,本工具不需要。
 // 操作者必須能在該粉絲專頁執行 CREATE_CONTENT / MANAGE / MODERATE 任務。
 import { gate } from './_auth.mjs';
 

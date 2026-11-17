@@ -19,25 +19,45 @@
 
 ## 步驟
 
+### 第 0 步:註冊成為 Meta 開發人員(沒做這步,主控板上不會有「建立應用程式」按鈕)
+
+1. 用**管理該粉絲專頁的那個 Facebook 帳號**登入瀏覽器
+2. 開 <https://developers.facebook.com/async/registration>
+3. 按 **Next** 同意開放平台政策與開發人員政策
+4. 填手機簡訊與電子郵件收到的確認碼(兩個都要)
+5. 選一個職業(不影響權限)
+
+出處:<https://developers.facebook.com/docs/development/register/>
+
 ### 第 1 步:建立 Meta 應用程式
 
 1. 到 <https://developers.facebook.com/apps/> → **建立應用程式**
-2. 用途選 **商家(Business)**
-3. 名稱隨意,例如 `好感製作所 社群發布`
-4. 建好後進入應用程式主控板
+2. 名稱隨意,例如 `好感製作所 社群發布`
+3. **使用案例選「管理粉絲專頁所有內容」**(英文 Manage everything on your Page)。
+   **注意:畫面上沒有叫「粉絲專頁 API」的選項**,官方文件的標題是
+   「使用『管理粉絲專頁所有內容』使用案例自訂 Meta 應用程式」。
+   選了之後 `business_management`、`pages_show_list`、`public_profile` 會自動加入且無法移除。
+4. **建立之後無法移除使用案例**,選錯只能重建一個應用程式。
 
-### 第 2 步:加入「粉絲專頁 API」使用案例
+### 第 2 步:把發文需要的權限加進去
 
-1. 主控板左側 → **使用案例(Use cases)**
-2. 找到 **Pages API / 粉絲專頁 API** → **新增**
-3. 進入該使用案例的**權限**頁,確認下列四個權限都在、且層級是 **一般存取權限(Standard Access)**:
-   - `pages_manage_posts`
+1. 主控板左側 → **主控板**,會列出你加的使用案例
+2. 選 **自訂「管理粉絲專頁所有內容」使用案例**
+3. 在可用權限清單裡,逐一點旁邊的 **新增**,把這兩個加上(用 Ctrl+F 搜比較快):
+   - `pages_manage_posts` ← **發文的關鍵,一定要加**
    - `pages_read_engagement`
-   - `pages_manage_engagement`
-   - `pages_read_user_engagement`
+4. 確認它們的層級是 **一般存取權限(Standard Access)**
 
-> `pages_manage_posts` 不能單獨要求,它會連帶需要 `pages_read_engagement` 與 `pages_show_list`,
-> 後台通常會自動帶上。
+> 預設只會給 `business_management`、`pages_show_list`、`public_profile`,
+> **發文用的 `pages_manage_posts` 一定要自己手動加**。
+>
+> **關於官方貼文指南列的四個權限:** 那份文件(`docs/pages-api/posts/`)列的是
+> `pages_manage_posts`、`pages_read_engagement`、`pages_manage_engagement`、
+> `pages_read_user_engagement`,那是「發文 + 留言 + 互動」全部操作的集合。
+> **本工具只打 `/feed` 與 `/photos`,前兩個就夠。**
+> 而且 2026-11-17 實際操作時,主控板的權限清單裡**找不到 `pages_read_user_engagement`**
+> (只有 `pages_read_user_content`)。找不到就跳過,**不要改加 `pages_read_user_content`**
+> ——那是讀別人在粉專留的內容,本工具不需要,多給權限只是多一份風險。
 
 ### 第 3 步:把會用這個工具的人加進應用程式角色
 
