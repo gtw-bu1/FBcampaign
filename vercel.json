@@ -4,6 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/generate.js": { "maxDuration": 300 }
+    "api/generate.js": { "maxDuration": 300 },
+    "api/post-to-facebook.js": { "maxDuration": 120 }
   }
 }
