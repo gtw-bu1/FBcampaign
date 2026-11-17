@@ -21,4 +21,14 @@
 .schedule-toggle input{width:14px;height:14px;accent-color:#38372f;cursor:pointer}
 .schedule-time{border:1px solid #d9d5cb;border-radius:7px;padding:11px 12px;font-size:12px;background:#fff;color:#302d28}
 .schedule-hint{margin:0 26px 18px;font-size:10px;line-height:1.7}
+/* 貼文成效預估 */
+.forecast-box{margin:0 26px 20px;padding:16px 18px;background:#fbfaf7;border:1px solid #e7e5df;border-radius:10px}
+.forecast-head{font-size:11px;color:#7b8674;display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
+.forecast-head small{font-size:9px;color:#a3998b}
+.forecast-main{display:flex;align-items:baseline;gap:10px;color:#302d28}
+.forecast-main strong{font-size:26px;font-weight:800}
+.forecast-main span{font-size:10px;color:#7b8674}
+.forecast-split{margin-top:6px;font-size:11px;color:#5f4333}
+.forecast-basis{margin:10px 0 0;font-size:10px;line-height:1.7;color:#7b8674}
+.forecast-caveat{margin:6px 0 0;font-size:9px;line-height:1.7;color:#a3998b}
 
