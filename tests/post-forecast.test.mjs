@@ -66,33 +66,39 @@ test('沒有歷史資料時明確回報無法預估,不給假數字', () => {
   assert.match(r.reason, /沒有可用的歷史貼文/);
 });
 
-test('樣本足夠時用「同圖片類型 + 同長度」那一群', () => {
+// 2026-11-18 改版:分群主依據從「有圖 + 文案長度」改成「貼文類型」,
+// 有圖/沒圖降為次要條件。類型分群本身的測試在 post-types.test.mjs。
+test('同類型內再依有圖/沒圖細分,樣本足夠時用 type+image', () => {
   const history = [];
-  for (let i = 0; i < 5; i++) history.push(post({ id: `img${i}`, message: 'a'.repeat(150), reactions: 30 }));
-  for (let i = 0; i < 5; i++) history.push(post({ id: `txt${i}`, message: 'a'.repeat(150), hasImage: false, reactions: 5 }));
-  const r = forecastEngagement(history, { message: 'b'.repeat(150), hasImage: true });
+  for (let i = 0; i < 5; i++) history.push(post({ id: `img${i}`, message: '留言抽序號', reactions: 30 }));
+  for (let i = 0; i < 5; i++) history.push(post({ id: `txt${i}`, message: '留言抽序號', hasImage: false, reactions: 5 }));
+  const r = forecastEngagement(history, { message: '留言抽新造型', hasImage: true });
   assert.equal(r.ok, true);
-  assert.equal(r.tier, 'image+length');
-  assert.equal(r.sampleSize, 5);
+  assert.equal(r.tier, 'type+image');
+  assert.equal(r.sampleSize, 5, '只能用有圖的那 5 則');
   assert.equal(r.expected, 33); // 30 + 2 + 1
   assert.match(r.basis, /有圖/);
 });
 
-test('同長度樣本不足時退到「同圖片類型」並說明', () => {
+test('同類型但該圖片形式樣本不足時退到整個類型', () => {
   const history = [];
-  for (let i = 0; i < 4; i++) history.push(post({ id: `s${i}`, message: 'a'.repeat(20), reactions: 40 }));
-  history.push(post({ id: 'long', message: 'a'.repeat(500), reactions: 60 }));
-  const r = forecastEngagement(history, { message: 'b'.repeat(500), hasImage: true });
-  assert.equal(r.tier, 'image');
-  assert.equal(r.sampleSize, 5);
-  assert.match(r.basis, /退一層/);
+  for (let i = 0; i < 4; i++) history.push(post({ id: `img${i}`, message: '留言抽序號', reactions: 40 }));
+  history.push(post({ id: 'txt', message: '留言抽序號', hasImage: false, reactions: 60 }));
+  const r = forecastEngagement(history, { message: '留言抽獎', hasImage: false });
+  assert.equal(r.tier, 'type');
+  assert.equal(r.sampleSize, 5, '退一層後用整個類型的 5 則');
+  assert.match(r.basis, /同類型樣本太少/);
 });
 
-test('同圖片類型也不足時退到全體', () => {
-  const history = [post({ id: 'a', reactions: 10 }), post({ id: 'b', reactions: 20 }), post({ id: 'c', reactions: 30 })];
-  const r = forecastEngagement(history, { message: '純文字草稿', hasImage: false });
+test('同類型整體也不足時退到全部貼文,並說明同類型只有幾則', () => {
+  const history = [
+    post({ id: 'a', message: '改版預告', reactions: 10 }),
+    post({ id: 'b', message: '維護公告', reactions: 20 }),
+    post({ id: 'c', message: '宣傳影片', reactions: 30 })
+  ];
+  const r = forecastEngagement(history, { message: '留言抽序號', hasImage: false });
   assert.equal(r.tier, 'all');
-  assert.match(r.basis, /整體/);
+  assert.match(r.basis, /同類型只有 0 則/);
 });
 
 test('信心等級依樣本數分級', () => {

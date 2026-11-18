@@ -11,6 +11,7 @@
 // 口徑說明:這裡的 engagement = 心情數 + 留言數 + 分享數,
 // 是不需要 read_insights 權限就拿得到的數字。
 // **它跟 Facebook 後台的「互動人數」不同**(後台算的是不重複人數),不要混著比。
+import { classifyPost, typeLabel, typeBreakdown, hasDiscriminativePower } from './post-types.mjs';
 
 export const MIN_SAMPLE = 3;          // 一群少於這麼多則就不可信,往上退一層
 export const CONFIDENT_SAMPLE = 12;   // 達到這個量才算有把握
@@ -73,6 +74,7 @@ export function summarizeHistory(posts = []) {
     return { count: 0, medianEngagement: null, medianReactions: null, withImage: 0, withoutImage: 0, best: null };
   }
   const best = usable.reduce((a, b) => (b.engagement > a.engagement ? b : a));
+  const withType = usable.map((p) => ({ ...p, typeId: p.typeId || classifyPost(p.message).id }));
   return {
     count: usable.length,
     medianEngagement: median(usable.map((p) => p.engagement)),
@@ -81,6 +83,7 @@ export function summarizeHistory(posts = []) {
     p75: quantile(usable.map((p) => p.engagement), 0.75),
     withImage: usable.filter((p) => p.hasImage).length,
     withoutImage: usable.filter((p) => !p.hasImage).length,
+    breakdown: typeBreakdown(withType, median),
     best: { id: best.id, engagement: best.engagement, permalink: best.permalink, message: (best.message || '').slice(0, 60) }
   };
 }
@@ -92,6 +95,11 @@ function confidenceOf(sampleSize) {
 }
 
 // 主要功能:給定歷史貼文與這次的草稿,回傳預估值與「憑什麼這樣估」。
+//
+// 2026-11-18 改版:分群依據從「有圖/沒圖 + 文案長度」改成 **貼文類型**。
+// 原因是使用者回報預估不準,而且指出了真正的原因:留言抽獎文和影片轉發文的留言數
+// 差距極大,混在一起取中位數,兩邊都失真。貼文類型才是決定互動量的主要因素,
+// 有沒有圖只是次要。
 export function forecastEngagement(posts = [], draft = {}) {
   const usable = posts.filter((p) => p && Number.isFinite(p.engagement));
   if (!usable.length) {
@@ -103,24 +111,30 @@ export function forecastEngagement(posts = [], draft = {}) {
   }
 
   const want = extractFeatures(draft);
-  const sameImage = usable.filter((p) => Boolean(p.hasImage) === want.hasImage);
-  const sameImageAndLength = sameImage.filter(
-    (p) => lengthBucket((p.message || '').trim().length) === want.lengthBucket
-  );
+  // 草稿的類型:使用者可以手動指定(draft.typeId),否則自動判斷
+  const autoType = classifyPost(draft.message);
+  const typeId = draft.typeId || autoType.id;
 
-  let group = sameImageAndLength;
-  let tier = 'image+length';
-  let basis = `${want.hasImage ? '有圖' : '純文字'}、文案長度「${want.lengthBucket}」的 ${group.length} 則貼文`;
+  const withType = usable.map((p) => ({ ...p, typeId: p.typeId || classifyPost(p.message).id }));
+  const sameType = withType.filter((p) => p.typeId === typeId);
+  const sameTypeAndImage = sameType.filter((p) => Boolean(p.hasImage) === want.hasImage);
+
+  const breakdown = typeBreakdown(withType, median);
+  const discriminative = hasDiscriminativePower(breakdown);
+
+  let group = sameTypeAndImage;
+  let tier = 'type+image';
+  let basis = `「${typeLabel(typeId)}」且${want.hasImage ? '有圖' : '純文字'}的 ${group.length} 則貼文`;
 
   if (group.length < MIN_SAMPLE) {
-    group = sameImage;
-    tier = 'image';
-    basis = `${want.hasImage ? '有圖' : '純文字'}的 ${group.length} 則貼文(同長度的樣本太少,退一層)`;
+    group = sameType;
+    tier = 'type';
+    basis = `「${typeLabel(typeId)}」的 ${group.length} 則貼文(不分有圖與否,同類型樣本太少)`;
   }
   if (group.length < MIN_SAMPLE) {
-    group = usable;
+    group = withType;
     tier = 'all';
-    basis = `全部 ${group.length} 則貼文(同類型的樣本太少,改用整體)`;
+    basis = `全部 ${group.length} 則貼文(同類型只有 ${sameType.length} 則,不足以單獨估算)`;
   }
 
   const engagements = group.map((p) => p.engagement);
@@ -138,6 +152,18 @@ export function forecastEngagement(posts = [], draft = {}) {
     basis,
     confidence: confidenceOf(group.length),
     features: want,
-    caveat: '預估值是歷史同類貼文的中位數,不是保證。觸及會受發布時間、廣告投放與演算法影響。'
+    typeId,
+    typeLabel: typeLabel(typeId),
+    typeAuto: autoType,
+    typeIsManual: Boolean(draft.typeId) && draft.typeId !== autoType.id,
+    breakdown,
+    discriminative,
+    // 同類型裡最高與最低,讓使用者判斷這個預估合不合理
+    samples: group
+      .slice()
+      .sort((a, b) => b.engagement - a.engagement)
+      .slice(0, 3)
+      .map((p) => ({ engagement: p.engagement, comments: p.comments, message: (p.message || '').slice(0, 40), permalink: p.permalink })),
+    caveat: '預估值是同類型歷史貼文的中位數,不是保證。觸及會受發布時間、廣告投放與演算法影響。'
   };
 }
