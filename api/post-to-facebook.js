@@ -16,6 +16,7 @@
 // pages_read_user_content——那是讀別人的留言內容,本工具不需要。
 // 操作者必須能在該粉絲專頁執行 CREATE_CONTENT / MANAGE / MODERATE 任務。
 import { gate } from './_auth.mjs';
+import { resolvePageToken } from './_pagetoken.mjs';
 
 const GRAPH_VERSION = 'v27.0';
 const MAX_MESSAGE_CHARS = 20000;
@@ -65,6 +66,9 @@ export function readGraphError(payload, status) {
   const parts = [e.message, e.error_user_msg].filter(Boolean);
   const detail = parts.join(' / ') || `代碼 ${e.code ?? '未知'}`;
   if (e.code === 190) return `權杖已失效或過期,需要重新產生粉絲專頁存取權杖。(${detail})`;
+  if (e.code === 200 && /as the page itself|page itself/i.test(e.message || '')) {
+    return `這是用戶權杖,不是粉絲專頁權杖——排程貼文必須以粉專身分發布。請改用粉絲專頁權杖,或讓權杖帶 pages_show_list 讓系統自動換取。(${detail})`;
+  }
   if (e.code === 200 || e.code === 10) return `權限不足,請確認權杖有 pages_manage_posts 且操作者可在該專頁 CREATE_CONTENT。(${detail})`;
   if (e.code === 368) return `此專頁暫時被限制發文。(${detail})`;
   return `Facebook 拒絕這次發布:${detail}`;
@@ -87,8 +91,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: '僅接受 POST。' });
 
   const pageId = process.env.FB_PAGE_ID;
-  const token = process.env.FB_PAGE_ACCESS_TOKEN;
-  if (!pageId || !token) {
+  const rawToken = process.env.FB_PAGE_ACCESS_TOKEN;
+  if (!pageId || !rawToken) {
     return res.status(503).json({ error: '尚未啟用 FB 發布。請在 Vercel 設定 FB_PAGE_ID 與 FB_PAGE_ACCESS_TOKEN,然後重新部署。' });
   }
 
@@ -104,6 +108,14 @@ export default async function handler(req, res) {
 
   const { message, imageDataUrl, link, scheduledPublishTime } = body;
   const scheduled = Number.isInteger(scheduledPublishTime);
+
+  // 排程貼文必須以粉專身分發布,所以一律先把權杖解析成粉專權杖。
+  let token;
+  try {
+    ({ token } = await resolvePageToken(rawToken, pageId));
+  } catch (error) {
+    return res.status(502).json({ error: error?.message || '無法取得粉絲專頁權杖。' });
+  }
 
   try {
     let result;

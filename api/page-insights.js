@@ -15,6 +15,7 @@
 // 所以這裡只呼叫替代後的新指標名,舊名稱會回「無效的衡量指標」錯誤。
 // 出處:developers.facebook.com/docs/platforminsights/page/deprecated-metrics
 import { gate } from './_auth.mjs';
+import { resolvePageToken } from './_pagetoken.mjs';
 
 const GRAPH_VERSION = 'v27.0';
 const DEFAULT_LIMIT = 50;
@@ -114,8 +115,8 @@ export default async function handler(req, res) {
   }
 
   const pageId = process.env.FB_PAGE_ID;
-  const token = process.env.FB_PAGE_ACCESS_TOKEN;
-  if (!pageId || !token) {
+  const rawToken = process.env.FB_PAGE_ACCESS_TOKEN;
+  if (!pageId || !rawToken) {
     return res.status(503).json({
       error: '尚未啟用 FB 功能。請在 Vercel 設定 FB_PAGE_ID 與 FB_PAGE_ACCESS_TOKEN,然後重新部署。'
     });
@@ -126,6 +127,14 @@ export default async function handler(req, res) {
 
   const limit = parseLimit(req.query?.limit ?? req.body?.limit);
   const wantInsights = String(req.query?.insights ?? req.body?.insights ?? '1') !== '0';
+
+  // 洞察報告需要粉專權杖(用戶權杖讀不到),先解析。
+  let token;
+  try {
+    ({ token } = await resolvePageToken(rawToken, pageId));
+  } catch (error) {
+    return res.status(502).json({ error: error?.message || '無法取得粉絲專頁權杖。' });
+  }
 
   try {
     const payload = await graphGet(
