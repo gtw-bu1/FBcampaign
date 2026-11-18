@@ -21,10 +21,44 @@ test('用戶權杖但能換到粉專 → 判定可自動換取', () => {
   const v = buildVerdict({
     pageId: PAGE_ID,
     me: ok({ id: '123', name: '某主管' }),
-    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T' }] }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT', 'ANALYZE', 'MANAGE'] }] }),
     permissions: ok({ data: [{ permission: 'pages_manage_posts', status: 'granted' }] })
   });
   assert.equal(v.kind, 'user-exchangeable');
+  assert.match(v.verdict, /設定正確/);
+});
+
+test('任務缺 CREATE_CONTENT → 判定不能發文,並指出去哪裡改', () => {
+  const v = buildVerdict({
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '系統使用者' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['ANALYZE'] }] }),
+    permissions: ok({ data: [{ permission: 'pages_manage_posts', status: 'granted' }] })
+  });
+  assert.equal(v.kind, 'no-create-content');
+  assert.match(v.advice, /完全控制|編輯以上/);
+});
+
+test('任務有 CREATE_CONTENT 但缺 ANALYZE → 只警告觸及數據', () => {
+  const v = buildVerdict({
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '系統使用者' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT'] }] }),
+    permissions: ok({ data: [] })
+  });
+  assert.equal(v.kind, 'user-exchangeable');
+  assert.ok(v.rows.some((r) => r.label.includes('ANALYZE') && r.state === 'warn'));
+});
+
+test('換取後的權杖實測身分不符 → 標記為壞掉,不要說可以用', () => {
+  const v = buildVerdict({
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '某人' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT'] }] }),
+    permissions: ok({ data: [] }),
+    exchangedProbe: ok({ id: '999', name: '別人' })
+  });
+  assert.equal(v.kind, 'exchange-broken');
 });
 
 test('用戶權杖且一個粉專都管不到 → 指向粉專人員設定', () => {

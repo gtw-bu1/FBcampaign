@@ -28,7 +28,10 @@ export function escapeHtml(s) {
 }
 
 // 把診斷結果組成結論與建議。純函式,方便測試。
-export function buildVerdict({ pageId, me, accounts, permissions, pageProbe }) {
+// 發文需要的粉專任務。權限(permissions)齊全但任務(tasks)不足,照樣發不出去。
+export const NEEDED_TASKS = { CREATE_CONTENT: '發文與排程發文', ANALYZE: '讀取觸及數據' };
+
+export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe }) {
   const rows = [];
   const add = (label, value, state) => rows.push({ label, value, state });
 
@@ -90,10 +93,43 @@ export function buildVerdict({ pageId, me, accounts, permissions, pageProbe }) {
 
   const match = list.find((p) => String(p.id) === String(pageId));
   if (match?.access_token) {
+    // 任務權限:這是「權限都有卻發不出去」最常見的原因
+    const tasks = Array.isArray(match.tasks) ? match.tasks : null;
+    if (tasks) {
+      add('在這個粉專的任務權限', tasks.length ? tasks.join('、') : '(一個都沒有)', tasks.includes('CREATE_CONTENT') ? 'ok' : 'bad');
+      const missing = Object.keys(NEEDED_TASKS).filter((t) => !tasks.includes(t));
+      if (missing.includes('CREATE_CONTENT')) {
+        return {
+          rows,
+          verdict: '權杖沒問題,但這個身分不能在粉專發文',
+          advice: `缺少 CREATE_CONTENT 任務(${NEEDED_TASKS.CREATE_CONTENT})。請到 business.facebook.com 的企業設定,把這個系統使用者對該粉專的權限改成「管理粉絲專頁(完全控制)」,或在粉專的「粉專管理人」把角色提升到編輯以上,然後重新產生權杖。`,
+          kind: 'no-create-content'
+        };
+      }
+      if (missing.includes('ANALYZE')) {
+        add('缺少 ANALYZE 任務', '拿不到觸及人數,按讚/留言/分享不受影響', 'warn');
+      }
+    } else {
+      add('在這個粉專的任務權限', '(讀不到 tasks 欄位)', 'warn');
+    }
+
+    if (exchangedProbe) {
+      const good = exchangedProbe.ok && String(exchangedProbe.payload?.id) === String(pageId);
+      add('換取後的粉專權杖實測', good ? `成功,確認代表「${exchangedProbe.payload?.name || ''}」` : `失敗:${exchangedProbe.payload?.error?.message || '身分不符'}`, good ? 'ok' : 'bad');
+      if (!good) {
+        return {
+          rows,
+          verdict: '可以換到粉專權杖,但換出來的權杖不能代表粉專',
+          advice: '這種情況少見。請把這一頁截圖提供給開發者。',
+          kind: 'exchange-broken'
+        };
+      }
+    }
+
     return {
       rows,
-      verdict: '這是用戶權杖,但可以自動換成粉專權杖',
-      advice: '系統會自動換取,發文應該可以運作。如果仍然失敗,請貼出錯誤訊息原文。',
+      verdict: '設定正確,發文應該可以運作',
+      advice: '系統會自動把用戶權杖換成粉專權杖。如果按下去仍然失敗,請貼出錯誤訊息原文——那會是另一個原因。',
       kind: 'user-exchangeable'
     };
   }
@@ -165,12 +201,19 @@ export default async function handler(req, res) {
   const me = await graph('me?fields=id,name', token);
   const isPageToken = me.ok && String(me.payload?.id) === String(pageId);
   const [accounts, permissions, pageProbe] = await Promise.all([
-    isPageToken ? Promise.resolve(null) : graph('me/accounts?fields=id,name,access_token&limit=100', token),
+    isPageToken ? Promise.resolve(null) : graph('me/accounts?fields=id,name,access_token,tasks&limit=100', token),
     graph('me/permissions', token),
     isPageToken ? graph(`${pageId}?fields=id,name`, token) : Promise.resolve(null)
   ]);
 
-  const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe });
+  // 真的用換到的粉專權杖打一次,確認它代表的是粉專本身(唯讀)
+  let exchangedProbe = null;
+  const exchanged = (accounts?.payload?.data || []).find((p) => String(p.id) === String(pageId));
+  if (exchanged?.access_token) {
+    exchangedProbe = await graph('me?fields=id,name', exchanged.access_token);
+  }
+
+  const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe });
   const tokenHint = `${token.length} 字元,開頭 ${token.slice(0, 6)}…`;
 
   if (wantsHtml) {
