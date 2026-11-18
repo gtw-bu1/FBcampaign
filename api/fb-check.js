@@ -31,7 +31,22 @@ export function escapeHtml(s) {
 // 發文需要的粉專任務。權限(permissions)齊全但任務(tasks)不足,照樣發不出去。
 export const NEEDED_TASKS = { CREATE_CONTENT: '發文與排程發文', ANALYZE: '讀取觸及數據' };
 
-export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe }) {
+// 把排程貼文整理成「幾月幾號幾點、貼文開頭」的清單。
+// 需要粉專權杖;出處 docs/graph-api/reference/page/scheduled_posts/
+export function describeScheduled(scheduled) {
+  if (!scheduled) return null;
+  if (!scheduled.ok) return { error: scheduled.payload?.error?.message || `HTTP ${scheduled.status}` };
+  const list = (scheduled.payload?.data || []).map((p) => {
+    const at = p.scheduled_publish_time
+      ? new Date(Number(p.scheduled_publish_time) * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
+      : '(沒有時間)';
+    const text = (p.message || '').replace(/\s+/g, ' ').slice(0, 40);
+    return `${at}:${text || '(無文字)'}`;
+  });
+  return { list };
+}
+
+export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled }) {
   const rows = [];
   const add = (label, value, state) => rows.push({ label, value, state });
 
@@ -126,10 +141,25 @@ export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exc
       }
     }
 
+    const sched = describeScheduled(scheduled);
+    if (sched?.error) {
+      add('目前的排程貼文', `讀不到:${sched.error}`, 'warn');
+    } else if (sched) {
+      add('目前的排程貼文', sched.list.length ? sched.list.join('  |  ') : '一則都沒有', sched.list.length ? 'ok' : 'warn');
+      if (sched.list.length) {
+        return {
+          rows,
+          verdict: `設定正確,而且粉專上已經有 ${sched.list.length} 則排程貼文`,
+          advice: '排程已經成功進到 Facebook。在粉專的「規劃工具」要切到排程當天那一週才看得到(預設可能顯示別的週,按「今天」回到本週)。確認內容無誤後可以在那裡取消。',
+          kind: 'has-scheduled'
+        };
+      }
+    }
+
     return {
       rows,
       verdict: '設定正確,發文應該可以運作',
-      advice: '系統會自動把用戶權杖換成粉專權杖。如果按下去仍然失敗,請貼出錯誤訊息原文——那會是另一個原因。',
+      advice: '所有檢查都通過,但粉專上目前沒有排程貼文,表示還沒成功送出過。請回工具按一次排程發布;若失敗請貼出錯誤訊息原文。',
       kind: 'user-exchangeable'
     };
   }
@@ -213,7 +243,14 @@ export default async function handler(req, res) {
     exchangedProbe = await graph('me?fields=id,name', exchanged.access_token);
   }
 
-  const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe });
+  // 用粉專權杖讀排程貼文,直接回答「FB 上到底有沒有東西」(唯讀)
+  let scheduled = null;
+  const pageToken = exchanged?.access_token || (isPageToken ? token : null);
+  if (pageToken) {
+    scheduled = await graph(`${pageId}/scheduled_posts?fields=id,message,scheduled_publish_time&limit=25`, pageToken);
+  }
+
+  const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled });
   const tokenHint = `${token.length} 字元,開頭 ${token.slice(0, 6)}…`;
 
   if (wantsHtml) {

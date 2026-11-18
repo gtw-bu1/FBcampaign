@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildVerdict, escapeHtml, renderHtml } from '../api/fb-check.js';
+import { buildVerdict, escapeHtml, renderHtml, describeScheduled } from '../api/fb-check.js';
 
 const PAGE_ID = '284455941624148';
 const ok = (payload) => ({ ok: true, status: 200, payload });
@@ -108,6 +108,45 @@ test('缺少 pages_manage_posts 會被標成會失敗', () => {
     permissions: ok({ data: [{ permission: 'pages_read_engagement', status: 'granted' }] })
   });
   assert.ok(v.rows.some((r) => r.label.includes('pages_manage_posts') && r.state === 'bad'));
+});
+
+test('有排程貼文時直接回報數量與時間,並提醒 FB 日曆要切對週', () => {
+  const v = buildVerdict({
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '系統使用者' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT', 'ANALYZE'] }] }),
+    permissions: ok({ data: [] }),
+    exchangedProbe: ok({ id: PAGE_ID, name: 'CSO 絕對武力粉絲團' }),
+    scheduled: ok({ data: [{ id: 'p1', message: '測試貼文', scheduled_publish_time: '1795000000' }] })
+  });
+  assert.equal(v.kind, 'has-scheduled');
+  assert.match(v.verdict, /已經有 1 則排程貼文/);
+  assert.match(v.advice, /那一週|今天/);
+});
+
+test('一則排程都沒有時,明說「還沒成功送出過」而不是說應該可以用', () => {
+  const v = buildVerdict({
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '系統使用者' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT', 'ANALYZE'] }] }),
+    permissions: ok({ data: [] }),
+    exchangedProbe: ok({ id: PAGE_ID, name: 'CSO' }),
+    scheduled: ok({ data: [] })
+  });
+  assert.equal(v.kind, 'user-exchangeable');
+  assert.match(v.advice, /還沒成功送出過/);
+});
+
+test('describeScheduled 把 UNIX 秒轉成台北時間並截短文案', () => {
+  const d = describeScheduled(ok({ data: [{ message: 'a'.repeat(100), scheduled_publish_time: '1795000000' }] }));
+  assert.equal(d.list.length, 1);
+  assert.ok(d.list[0].includes('2026'));
+  assert.ok(d.list[0].length < 90);
+});
+
+test('describeScheduled 讀取失敗時回 error,不假裝沒有排程', () => {
+  const d = describeScheduled(bad(403, { message: 'Permissions error' }));
+  assert.match(d.error, /Permissions error/);
 });
 
 test('escapeHtml 擋掉標籤注入', () => {
