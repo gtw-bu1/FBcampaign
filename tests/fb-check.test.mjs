@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildVerdict, escapeHtml, renderHtml, describeScheduled } from '../api/fb-check.js';
+import { buildVerdict, escapeHtml, renderHtml, describeScheduled, renderScheduledCards } from '../api/fb-check.js';
 
 const PAGE_ID = '284455941624148';
 const ok = (payload) => ({ ok: true, status: 200, payload });
@@ -147,6 +147,26 @@ test('describeScheduled 把 UNIX 秒轉成台北時間並截短文案', () => {
 test('describeScheduled 讀取失敗時回 error,不假裝沒有排程', () => {
   const d = describeScheduled(bad(403, { message: 'Permissions error' }));
   assert.match(d.error, /Permissions error/);
+});
+
+test('renderScheduledCards 顯示時間、文案與圖片,並逃脫使用者內容', () => {
+  const html = renderScheduledCards([
+    { id: '1_2', at: '2026/11/25 下午2:00:00', message: '<img onerror=alert(1)>文案', picture: 'https://x/y.jpg' }
+  ]);
+  assert.ok(html.includes('2026/11/25'));
+  assert.ok(html.includes('https://x/y.jpg'));
+  assert.ok(!html.includes('<img onerror'));
+  assert.ok(html.includes('&lt;img onerror'));
+});
+
+test('renderScheduledCards 沒有排程時回空字串', () => {
+  assert.equal(renderScheduledCards([]), '');
+});
+
+test('describeScheduled 的 items 帶出圖片網址與貼文編號', () => {
+  const d = describeScheduled(ok({ data: [{ id: 'p9', message: '內容', scheduled_publish_time: '1795000000', full_picture: 'https://x/z.jpg' }] }));
+  assert.equal(d.items[0].id, 'p9');
+  assert.equal(d.items[0].picture, 'https://x/z.jpg');
 });
 
 test('escapeHtml 擋掉標籤注入', () => {

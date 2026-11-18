@@ -36,14 +36,16 @@ export const NEEDED_TASKS = { CREATE_CONTENT: '發文與排程發文', ANALYZE: 
 export function describeScheduled(scheduled) {
   if (!scheduled) return null;
   if (!scheduled.ok) return { error: scheduled.payload?.error?.message || `HTTP ${scheduled.status}` };
-  const list = (scheduled.payload?.data || []).map((p) => {
-    const at = p.scheduled_publish_time
+  const items = (scheduled.payload?.data || []).map((p) => ({
+    id: p.id || '',
+    at: p.scheduled_publish_time
       ? new Date(Number(p.scheduled_publish_time) * 1000).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })
-      : '(沒有時間)';
-    const text = (p.message || '').replace(/\s+/g, ' ').slice(0, 40);
-    return `${at}:${text || '(無文字)'}`;
-  });
-  return { list };
+      : '(沒有時間)',
+    message: (p.message || '').replace(/\s+/g, ' '),
+    picture: p.full_picture || ''
+  }));
+  const list = items.map((p) => `${p.at}:${p.message.slice(0, 40) || '(無文字)'}`);
+  return { list, items };
 }
 
 export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled }) {
@@ -183,7 +185,19 @@ export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exc
 
 const STATE_COLOR = { ok: '#2f7d4f', warn: '#9a6a1e', bad: '#b34b34', info: '#444' };
 
-export function renderHtml({ rows, verdict, advice, tokenHint }) {
+export function renderScheduledCards(items = []) {
+  if (!items.length) return '';
+  const cards = items.map((p) => `<div class="post">
+    ${p.picture ? `<img src="${escapeHtml(p.picture)}" alt="排程貼文圖片">` : '<div class="noimg">無圖片</div>'}
+    <div class="postbody"><div class="postat">${escapeHtml(p.at)}</div>
+    <div class="posttext">${escapeHtml(p.message || '(無文字)')}</div>
+    <div class="postid">貼文編號 ${escapeHtml(p.id)}</div></div></div>`).join('');
+  return `<h2>粉專上實際的排程貼文</h2>
+  <p class="note">這是直接向 Facebook 查到的內容。看得到圖與文字,就表示已經成功排進去了,到時間會自動發布。</p>
+  <div class="posts">${cards}</div>`;
+}
+
+export function renderHtml({ rows, verdict, advice, tokenHint, scheduledCards = '' }) {
   const items = rows.map((r) =>
     `<tr><th>${escapeHtml(r.label)}</th><td style="color:${STATE_COLOR[r.state] || '#444'}">${escapeHtml(r.value)}</td></tr>`
   ).join('');
@@ -197,6 +211,16 @@ h1{font-size:18px;margin:0 0 4px}.sub{font-size:11px;color:#a3998b;margin:0 0 18
 .advice{font-size:12px;line-height:1.9;background:#fff8ed;border:1px solid #f0e3cc;border-radius:8px;padding:12px 14px;margin-bottom:18px}
 table{width:100%;border-collapse:collapse;font-size:12px}
 th{text-align:left;width:42%;padding:9px 0;color:#7b8674;font-weight:400;vertical-align:top;border-top:1px solid #f0efe9}
+h2{font-size:14px;margin:26px 0 6px}
+.note{font-size:11px;color:#7b8674;line-height:1.8;margin:0 0 12px}
+.posts{display:flex;flex-direction:column;gap:12px}
+.post{display:flex;gap:12px;border:1px solid #e7e5df;border-radius:10px;padding:12px;background:#fbfaf7}
+.post img{width:120px;height:120px;object-fit:cover;border-radius:8px;flex:0 0 auto}
+.noimg{width:120px;height:120px;border-radius:8px;background:#efede7;color:#a3998b;font-size:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.postbody{min-width:0}
+.postat{font-size:13px;font-weight:700;color:#302d28;margin-bottom:6px}
+.posttext{font-size:11px;line-height:1.8;color:#5f4333;max-height:90px;overflow:auto;word-break:break-word}
+.postid{font-size:9px;color:#a3998b;margin-top:8px}
 td{padding:9px 0;vertical-align:top;border-top:1px solid #f0efe9;word-break:break-all}
 .foot{margin-top:18px;font-size:10px;color:#a3998b;line-height:1.8}
 </style></head><body><div class="card">
@@ -205,6 +229,7 @@ td{padding:9px 0;vertical-align:top;border-top:1px solid #f0efe9;word-break:brea
 <div class="verdict">${escapeHtml(verdict)}</div>
 <div class="advice"><strong>怎麼辦:</strong>${escapeHtml(advice)}</div>
 <table>${items}</table>
+${scheduledCards}
 <p class="foot">權杖長度 ${escapeHtml(tokenHint)}。這頁是唯讀診斷,不會發布任何貼文。</p>
 </div></body></html>`;
 }
@@ -247,7 +272,7 @@ export default async function handler(req, res) {
   let scheduled = null;
   const pageToken = exchanged?.access_token || (isPageToken ? token : null);
   if (pageToken) {
-    scheduled = await graph(`${pageId}/scheduled_posts?fields=id,message,scheduled_publish_time&limit=25`, pageToken);
+    scheduled = await graph(`${pageId}/scheduled_posts?fields=id,message,scheduled_publish_time,full_picture&limit=25`, pageToken);
   }
 
   const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled });
@@ -255,7 +280,8 @@ export default async function handler(req, res) {
 
   if (wantsHtml) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    return res.status(200).send(renderHtml({ ...result, tokenHint }));
+    const cards = renderScheduledCards(describeScheduled(scheduled)?.items || []);
+    return res.status(200).send(renderHtml({ ...result, tokenHint, scheduledCards: cards }));
   }
   return res.status(200).json({ ok: true, ...result, tokenHint });
 }
