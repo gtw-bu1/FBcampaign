@@ -43,21 +43,38 @@
 
 1. 主控板左側 → **主控板**,會列出你加的使用案例
 2. 選 **自訂「管理粉絲專頁所有內容」使用案例**
-3. 在可用權限清單裡,逐一點旁邊的 **新增**,把這兩個加上(用 Ctrl+F 搜比較快):
-   - `pages_manage_posts` ← **發文的關鍵,一定要加**
+3. 在可用權限清單裡,逐一點旁邊的 **新增**,把這三個加上(用 Ctrl+F 搜比較快):
+   - `pages_manage_posts` ← **發文的關鍵**
    - `pages_read_engagement`
+   - `pages_read_user_content` ← **讀粉專貼文清單的關鍵(2026-11-18 實測)**
 4. 確認它們的層級是 **一般存取權限(Standard Access)**
 
 > 預設只會給 `business_management`、`pages_show_list`、`public_profile`,
-> **發文用的 `pages_manage_posts` 一定要自己手動加**。
+> **上面三個一定要自己手動加**。
 >
-> **關於官方貼文指南列的四個權限:** 那份文件(`docs/pages-api/posts/`)列的是
-> `pages_manage_posts`、`pages_read_engagement`、`pages_manage_engagement`、
-> `pages_read_user_engagement`,那是「發文 + 留言 + 互動」全部操作的集合。
-> **本工具只打 `/feed` 與 `/photos`,前兩個就夠。**
-> 而且 2026-11-17 實際操作時,主控板的權限清單裡**找不到 `pages_read_user_engagement`**
-> (只有 `pages_read_user_content`)。找不到就跳過,**不要改加 `pages_read_user_content`**
-> ——那是讀別人在粉專留的內容,本工具不需要,多給權限只是多一份風險。
+> ### 2026-11-18 實測修正:`pages_read_user_content` 是必要的
+>
+> 我原本判斷這個權限「是讀別人在粉專留的內容,本工具不需要」——**那是錯的**。
+> 只給 `pages_read_engagement` 時,`GET /{page_id}/published_posts` 會回:
+>
+> ```
+> (#10) This endpoint requires the 'pages_read_user_content' permission
+>       or the 'Page Public Content Access' feature.
+> ```
+>
+> 官方文件 `docs/graph-api/reference/page/published_posts/` 的錯誤代碼 283 寫明:
+> 「requires the extended permission pages_read_engagement **and/or pages_read_user_content**」。
+>
+> **發文不需要它**(`/feed`、`/photos` 只要 `pages_manage_posts`),
+> **只有「讀取粉專成效」與成效預估需要**。所以發文功能先上線也可以,成效功能要補這個權限。
+>
+> ### 關於官方貼文指南列的四個權限
+>
+> 那份文件(`docs/pages-api/posts/`)列的是 `pages_manage_posts`、`pages_read_engagement`、
+> `pages_manage_engagement`、`pages_read_user_engagement`,那是「發文 + 留言 + 互動」全部操作的集合。
+> **本工具只打 `/feed` 與 `/photos`,發文用前兩個就夠。**
+> 而且主控板的權限清單裡**找不到 `pages_read_user_engagement`**(只有 `pages_read_user_content`),
+> 找不到就跳過。
 
 ### 第 3 步:把會用這個工具的人加進應用程式角色
 

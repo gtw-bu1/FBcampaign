@@ -169,6 +169,40 @@ test('describeScheduled 的 items 帶出圖片網址與貼文編號', () => {
   assert.equal(d.items[0].picture, 'https://x/z.jpg');
 });
 
+test('缺少 pages_read_user_content 會被標成成效功能會失敗', () => {
+  const v = buildVerdict({
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '系統使用者' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT'] }] }),
+    permissions: ok({ data: [
+      { permission: 'pages_manage_posts', status: 'granted' },
+      { permission: 'pages_read_engagement', status: 'granted' }
+    ] })
+  });
+  const row = v.rows.find((r) => r.label.includes('pages_read_user_content'));
+  assert.ok(row, '應該要有一行指出缺這個權限');
+  assert.equal(row.state, 'bad');
+  assert.match(row.value, /發文不受影響/);
+});
+
+test('讀取貼文清單實測失敗時標為 bad,成功時顯示讀到幾則', () => {
+  const base = {
+    pageId: PAGE_ID,
+    me: ok({ id: '123', name: '系統使用者' }),
+    accounts: ok({ data: [{ id: PAGE_ID, name: 'CSO', access_token: 'T', tasks: ['CREATE_CONTENT', 'ANALYZE'] }] }),
+    permissions: ok({ data: [] })
+  };
+  const fail = buildVerdict({ ...base, postsProbe: bad(403, { code: 10, message: "requires the 'pages_read_user_content' permission" }) });
+  const failRow = fail.rows.find((r) => r.label.includes('讀取貼文清單實測'));
+  assert.equal(failRow.state, 'bad');
+  assert.match(failRow.value, /pages_read_user_content/);
+
+  const pass = buildVerdict({ ...base, postsProbe: ok({ data: [{ id: 'a' }, { id: 'b' }] }) });
+  const passRow = pass.rows.find((r) => r.label.includes('讀取貼文清單實測'));
+  assert.equal(passRow.state, 'ok');
+  assert.match(passRow.value, /讀到 2 則/);
+});
+
 test('escapeHtml 擋掉標籤注入', () => {
   assert.equal(escapeHtml('<script>x</script>'), '&lt;script&gt;x&lt;/script&gt;');
 });

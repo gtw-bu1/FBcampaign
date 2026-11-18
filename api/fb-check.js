@@ -48,7 +48,7 @@ export function describeScheduled(scheduled) {
   return { list, items };
 }
 
-export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled }) {
+export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled, postsProbe }) {
   const rows = [];
   const add = (label, value, state) => rows.push({ label, value, state });
 
@@ -74,6 +74,10 @@ export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exc
     add('已授權的權限', granted.length ? granted.join('、') : '(讀不到,粉專權杖本來就讀不到這個,正常)', 'info');
     for (const need of ['pages_manage_posts', 'pages_read_engagement']) {
       if (granted.length && !granted.includes(need)) add(`缺少權限 ${need}`, '發文會失敗', 'bad');
+    }
+    // 2026-11-18 實測:讀粉專貼文清單需要這個,只有 pages_read_engagement 會被擋(code 10)
+    if (granted.length && !granted.includes('pages_read_user_content')) {
+      add('缺少權限 pages_read_user_content', '「讀取粉專成效」與成效預估會失敗(發文不受影響)', 'bad');
     }
     if (granted.length && !granted.includes('read_insights')) {
       add('沒有 read_insights', '按讚/留言/分享仍可讀,只是拿不到觸及人數', 'warn');
@@ -141,6 +145,12 @@ export function buildVerdict({ pageId, me, accounts, permissions, pageProbe, exc
           kind: 'exchange-broken'
         };
       }
+    }
+
+    if (postsProbe) {
+      const good = postsProbe.ok;
+      const n = (postsProbe.payload?.data || []).length;
+      add('讀取貼文清單實測', good ? `成功,讀到 ${n} 則` : `失敗:${postsProbe.payload?.error?.message || '未知'}`, good ? 'ok' : 'bad');
     }
 
     const sched = describeScheduled(scheduled);
@@ -270,12 +280,15 @@ export default async function handler(req, res) {
 
   // 用粉專權杖讀排程貼文,直接回答「FB 上到底有沒有東西」(唯讀)
   let scheduled = null;
+  let postsProbe = null;
   const pageToken = exchanged?.access_token || (isPageToken ? token : null);
   if (pageToken) {
     scheduled = await graph(`${pageId}/scheduled_posts?fields=id,message,scheduled_publish_time,full_picture&limit=25`, pageToken);
+    // 實測「讀取粉專成效」會不會通,這是和發文不同的權限路徑
+    postsProbe = await graph(`${pageId}/published_posts?fields=id&limit=3`, pageToken);
   }
 
-  const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled });
+  const result = buildVerdict({ pageId, me, accounts, permissions, pageProbe, exchangedProbe, scheduled, postsProbe });
   const tokenHint = `${token.length} 字元,開頭 ${token.slice(0, 6)}…`;
 
   if (wantsHtml) {

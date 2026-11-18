@@ -145,3 +145,17 @@ test('readGraphError 把權限不足講成可行動的訊息', () => {
   assert.match(readGraphError({ error: { code: 190, message: 'x' } }, 401), /權杖已失效/);
   assert.match(readGraphError({ error: { code: 100, message: 'x' } }, 400), /已被 Meta 停用/);
 });
+
+test('2026-11-18 實測的 code 10 錯誤要直接點名 pages_read_user_content', () => {
+  const real = {
+    error: {
+      code: 10,
+      message: "(#10) This endpoint requires the 'pages_read_user_content' permission or the 'Page Public Content Access' feature."
+    }
+  };
+  const msg = readGraphError(real, 403);
+  assert.match(msg, /pages_read_user_content/);
+  assert.match(msg, /重新產生權杖/);
+  // 不要讓使用者誤以為是私人訊息權限,那會讓主管不敢給
+  assert.match(msg, /不是讀私人訊息/);
+});

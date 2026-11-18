@@ -68,8 +68,14 @@ export function readGraphError(payload, status) {
   if (!e) return `Facebook 回應異常(HTTP ${status})。`;
   const detail = [e.message, e.error_user_msg].filter(Boolean).join(' / ') || `代碼 ${e.code ?? '未知'}`;
   if (e.code === 190) return `權杖已失效或過期,需要重新產生粉絲專頁存取權杖。(${detail})`;
+  // 2026-11-18 實測:/{page_id}/published_posts 需要 pages_read_user_content。
+  // 官方文件錯誤代碼 283 寫明「requires pages_read_engagement and/or pages_read_user_content」,
+  // 光有 pages_read_engagement 會回 code 10。別再把這個誤判成 pages_read_engagement 沒給。
+  if (/pages_read_user_content/.test(e.message || '')) {
+    return '權杖缺少 pages_read_user_content 權限,讀不到粉專的貼文清單。請在 Meta 應用程式的使用案例權限裡加上 pages_read_user_content,然後重新產生權杖。(這個權限用來讀粉專自己的貼文與其互動數,不是讀私人訊息。)';
+  }
   if (e.code === 200 || e.code === 10) {
-    return `權限不足,讀取貼文需要 pages_read_engagement。(${detail})`;
+    return `權限不足。讀取貼文清單需要 pages_read_user_content(加上既有的 pages_read_engagement)。(${detail})`;
   }
   if (e.code === 100) return `要求的欄位或衡量指標無效,可能是該指標已被 Meta 停用。(${detail})`;
   return `Facebook 拒絕這次查詢:${detail}`;
