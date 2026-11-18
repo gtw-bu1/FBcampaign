@@ -4,6 +4,48 @@ import { classifyPost, typeBreakdown, hasDiscriminativePower, typeLabel } from '
 import { median, forecastEngagement } from '../src/post-forecast.mjs';
 
 // 使用者 2026-11-18 口述的兩類對比,是這次改版的驗收標準
+// 2026-11-18 使用者提供的「他粉專實際用字」,這批是校準的主要依據
+test('使用者提供的留言互動型用字全部判對', () => {
+  const cases = [
+    '【活動方式】在貼文下方留言你最愛的武器',
+    '活動獎勵:艾莉造型永久序號 x 3',
+    '活動時間:11/20 - 11/30',
+    '活動辦法請見下方說明',
+    '參加方式很簡單',
+    '抽獎名單公布!',
+    '留言抽序號'
+  ];
+  for (const c of cases) {
+    const r = classifyPost(c);
+    assert.equal(r.id, 'comment-driven', `判錯:${c} → ${r.label}`);
+  }
+});
+
+test('使用者提供的日常宣傳型用字全部判對', () => {
+  const cases = [
+    '【速報】新武器登場',
+    '【快報】改版內容搶先看',
+    '新造型販售中',
+    '限時特價開賣',
+    '商城上架新商品',
+    '改版預告',
+    '維護公告',
+    '最新宣傳影片',
+    '新手攻略'
+  ];
+  for (const c of cases) {
+    const r = classifyPost(c);
+    assert.equal(r.id, 'announcement', `判錯:${c} → ${r.label}`);
+  }
+});
+
+test('「活動」兩字太泛,不可單獨觸發留言互動型', () => {
+  // 「活動預告」其實是宣傳,不該被當成活動辦法貼文
+  assert.equal(classifyPost('本次活動預告搶先看').id, 'announcement');
+  // 但列出結構化欄位的就是真的活動辦法貼文
+  assert.equal(classifyPost('活動預告!活動方式:留言即可參加').id, 'comment-driven');
+});
+
 test('留言抽獎類被判為留言互動型', () => {
   const cases = [
     '留言抽序號！三名幸運兒帶走艾莉造型',
