@@ -19,7 +19,10 @@ import { resolvePageToken } from './_pagetoken.mjs';
 
 const GRAPH_VERSION = 'v27.0';
 const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 100;
+const MAX_LIMIT = 100;        // Graph 單次上限,超過會回錯
+const MAX_PAGES = 12;         // 分頁上限,12 x 100 = 1200 則,足夠兩年
+// 官方限制:published_posts 每年大約只回 600 則,所以兩年約 1200 則是天花板。
+// 出處 docs/graph-api/reference/page/published_posts/
 
 // 只用現行有效的指標名。任何一個被停用,Graph 會整個要求回錯,
 // 所以 insights 是「盡力取得」:失敗就降級,不讓主要資料跟著死。
@@ -79,6 +82,37 @@ export function readGraphError(payload, status) {
   }
   if (e.code === 100) return `要求的欄位或衡量指標無效,可能是該指標已被 Meta 停用。(${detail})`;
   return `Facebook 拒絕這次查詢:${detail}`;
+}
+
+// 跟著 paging.next 一路翻,直到沒有下一頁或達到上限。
+// 回傳 { data, pages, truncated } ;truncated=true 表示還有更多但被上限擋住。
+export async function graphGetAll(path, token, { maxPages = MAX_PAGES, timeoutMs = 30000 } = {}) {
+  const out = [];
+  let next = null;
+  let pages = 0;
+  while (pages < maxPages) {
+    const payload = next
+      ? await graphGetUrl(next, timeoutMs)
+      : await graphGet(path, token, timeoutMs);
+    pages++;
+    const batch = payload?.data || [];
+    out.push(...batch);
+    next = payload?.paging?.next || null;
+    if (!next || !batch.length) break;
+  }
+  return { data: out, pages, truncated: Boolean(next) };
+}
+
+// paging.next 是完整網址(已含 access_token),直接打
+async function graphGetUrl(url, timeoutMs = 30000) {
+  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(readGraphError(payload, response.status));
+    error.graphCode = payload?.error?.code;
+    throw error;
+  }
+  return payload || {};
 }
 
 async function graphGet(path, token, timeoutMs = 30000) {
