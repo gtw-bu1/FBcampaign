@@ -81,15 +81,116 @@ export function extractRewardText(message) {
   return extractRewardLines(message).join('\n');
 }
 
+// --- 2026-11-19 使用者要求:獎勵只留名稱,另外拉一欄「發放方式」 ---
+//
+// 他給的對照:
+//   「參與活動即可獲得活動解碼器 ×3（每帳號限領 1 次）」→ 名稱「活動解碼器 ×3」、方式「留言就送」
+//   「參與玩家中抽出 維拉．塔莉卡 x1  共1名」            → 名稱「維拉．塔莉卡 x1」、方式「留言就抽」
+//
+// 發放方式沿用他原本成效面板的 REWARD_MODES 概念(抽獎 / 符合條件即送),
+// 但用他這次講的說法「留言就抽 / 留言就送」。
+
+export const DELIVERY = {
+  DRAW: '留言就抽',
+  GIVE: '留言就送',
+  UNKNOWN: '未標示'
+};
+
+// 判斷放在清理之前做,因為判斷的線索(「抽出」「即可獲得」)正是要被清掉的那些動詞。
+const DRAW_PATTERNS = [/抽出/, /抽獎/, /抽選/, /抽中/, /抽\s*\d/, /中獎/, /幸運/];
+const GIVE_PATTERNS = [/即可獲得/, /即可領取/, /皆可獲得/, /都可獲得/, /人人/, /直接(送|贈|給)/, /即(送|贈)/, /免費(送|贈|領)/, /限領/];
+
+export function classifyDelivery(line) {
+  const t = typeof line === 'string' ? line : '';
+  if (!t.trim()) return DELIVERY.UNKNOWN;
+  // 「抽」優先:「參與玩家中抽出 X 共1名」有時也寫「每人限領」,但抽才是關鍵動作
+  if (DRAW_PATTERNS.some((re) => re.test(t))) return DELIVERY.DRAW;
+  if (GIVE_PATTERNS.some((re) => re.test(t))) return DELIVERY.GIVE;
+  return DELIVERY.UNKNOWN;
+}
+
+// 把一行獎勵描述清成只剩「名稱 + 數量」。
+// 清不乾淨時回原字串,不要回空值——留白會讓使用者以為沒有獎勵。
+//
+// 兩個關鍵判斷(2026-11-19 實測後修正):
+// 1. 一行裡若有「獲得/領取」,取**最後一個**之後的內容。
+//    因為「抽出 10 名幸運玩家獲得 限定武器 x1」的前綴比想像的長,
+//    用固定長度的前綴比對清不掉,反而留下「10 名幸運玩家獲得」。
+// 2. **括號不可一律清掉。**「（7天）」「（永久）」是獎勵的重要屬性
+//    (體驗型與永久型的魅力度差很多),只有「（每帳號限領 1 次）」這種名額附註才該清。
+const GET_VERB = /(?:獲得|領取|拿到|得到)\s*/g;
+const LEAD_PATTERNS = [
+  /^.{0,12}?(?:抽出|抽選|抽中|贈送|送出)\s*/,
+  // 冒號是必要的:「獎勵:X」才是欄位名前綴,
+  // 「好禮 x1」的「好禮」是獎勵名稱本身,不可清掉(2026-11-19 測試抓到)
+  /^(?:獎勵|好禮|贈品)\s*[:：]\s*/,
+  /^[\s・•·,、\-—]+/
+];
+// 括號內容長這樣就是名額/次數附註,可以清
+const NOTE_IN_PAREN = /限領|限一次|限 ?\d+ ?次|每人|每帳號|每位|名額|數量有限|隨機|不重複/;
+const TAIL_PATTERNS = [
+  /\s*共\s*\d+\s*(?:名|位|份|組|個|人)\s*$/,
+  /\s*[,、。!！]\s*$/
+];
+
+function stripNoteParens(text) {
+  return text
+    .replace(/（([^（）]*)）\s*$/, (m, inner) => (NOTE_IN_PAREN.test(inner) ? '' : m))
+    .replace(/\(([^()]*)\)\s*$/, (m, inner) => (NOTE_IN_PAREN.test(inner) ? '' : m))
+    .trim();
+}
+
+export function cleanRewardName(line, maxLen = 40) {
+  let t = typeof line === 'string' ? line.trim() : '';
+  if (!t) return '';
+  const original = t;
+
+  // 先用「獲得/領取」切:取最後一個之後的內容,那才是獎勵本體
+  const verbs = [...t.matchAll(GET_VERB)];
+  if (verbs.length) {
+    const last = verbs[verbs.length - 1];
+    const after = t.slice(last.index + last[0].length).trim();
+    if (after.length >= 2) t = after;
+  }
+
+  for (const re of LEAD_PATTERNS) t = t.replace(re, '').trim();
+  // 附註括號與「共N名」可能同時出現,反覆清到不再變化
+  for (let i = 0; i < 3; i++) {
+    const before = t;
+    t = stripNoteParens(t);
+    for (const re of TAIL_PATTERNS) t = t.replace(re, '').trim();
+    if (t === before) break;
+  }
+  t = t.replace(/\s{2,}/g, ' ').trim();
+  // 清到剩不到兩個字就是清壞了,還原
+  return (t.length >= 2 ? t : original).slice(0, maxLen);
+}
+
+// 一行獎勵 → { name, delivery }
+export function parseRewardLine(line) {
+  return { name: cleanRewardName(line), delivery: classifyDelivery(line), raw: String(line ?? '').trim() };
+}
+
+// 整則活動的發放方式總結:同時有抽與送就是「兩種都有」
+export function summarizeDelivery(items = []) {
+  const set = new Set(items.map((i) => i.delivery).filter((d) => d && d !== DELIVERY.UNKNOWN));
+  if (!set.size) return DELIVERY.UNKNOWN;
+  if (set.size === 1) return Array.from(set)[0];
+  return '兩種都有';
+}
+
 // 整理成報表的一列。只放使用者這次要的欄位,不多塞。
 export function toActivityRow(post) {
   const rewardLines = extractRewardLines(post.message);
+  const rewards = rewardLines.map(parseRewardLine);
   return {
     id: post.id || '',
     date: post.createdTime ? String(post.createdTime).slice(0, 10) : '',
     title: extractTitle(post.message),
     rewardLines,
-    rewardCount: rewardLines.length,
+    rewards,
+    delivery: summarizeDelivery(rewards),
+    rewardCount: rewards.length,
     comments: post.comments ?? 0,
     reactions: post.reactions ?? 0,
     shares: post.shares ?? 0,
@@ -97,7 +198,7 @@ export function toActivityRow(post) {
   };
 }
 
-const CSV_HEADERS = ['發布日期', '活動標題', '獎勵內容', '獎勵項目數', '留言數', '心情數', '分享數', '貼文連結'];
+const CSV_HEADERS = ['發布日期', '活動標題', '獎勵名稱', '發放方式', '獎勵項目數', '留言數', '心情數', '分享數', '貼文連結'];
 
 function csvCell(v) {
   const s = v === null || v === undefined ? '' : String(v);
@@ -108,7 +209,10 @@ export function activityCsv(rows = []) {
   const lines = [CSV_HEADERS.join(',')];
   for (const r of rows) {
     lines.push([
-      r.date, r.title, r.rewardLines.join('\n'), r.rewardCount,
+      r.date, r.title,
+      r.rewards.map((x) => x.name).join('\n'),
+      r.rewards.map((x) => x.delivery).join('\n'),
+      r.rewardCount,
       r.comments, r.reactions, r.shares, r.permalink
     ].map(csvCell).join(','));
   }

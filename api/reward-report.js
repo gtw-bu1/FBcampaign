@@ -34,9 +34,12 @@ function renderHtml({ rows, months, scanned, truncated, csvUrl }) {
   const row = (r) => `<tr>
     <td class="d">${escapeHtml(r.date)}</td>
     <td class="t">${escapeHtml(r.title) || '—'}</td>
-    <td class="rw">${r.rewardLines.length
-      ? r.rewardLines.map((l) => `<div>${escapeHtml(l)}</div>`).join('')
+    <td class="rw">${r.rewards.length
+      ? r.rewards.map((x) => `<div>${escapeHtml(x.name)}</div>`).join('')
       : '<span class="dim">（抓不到獎勵內容）</span>'}</td>
+    <td class="dv">${r.rewards.length
+      ? r.rewards.map((x) => `<div class="${x.delivery === '留言就抽' ? 'draw' : x.delivery === '留言就送' ? 'give' : 'dim'}">${escapeHtml(x.delivery)}</div>`).join('')
+      : '<span class="dim">—</span>'}</td>
     <td class="n hi">${r.comments}</td>
     <td class="n">${r.reactions}</td>
     <td class="n">${r.shares}</td>
@@ -59,6 +62,10 @@ td.d{white-space:nowrap;color:#7b8674;font-size:11px}
 td.t{font-weight:700;min-width:190px;line-height:1.6}
 td.rw{line-height:1.8;min-width:280px}
 td.rw div{padding:1px 0}
+td.dv{white-space:nowrap;line-height:1.8}
+td.dv div{padding:1px 0}
+td.dv .draw{color:#9a6a1e;font-weight:700}
+td.dv .give{color:#2f7d4f;font-weight:700}
 td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td.hi{font-weight:800;font-size:15px;color:#302d28}
 td.lk a{font-size:10px;color:#7b8674}
@@ -70,10 +77,14 @@ a.dl{display:inline-block;background:#38372f;color:#fff;border-radius:7px;paddin
 <p class="sub">最近 ${months} 個月共掃過 ${scanned} 則貼文,其中 <strong>${rows.length} 則</strong>文案含「活動獎勵」${truncated ? '(已達分頁上限,可能還有更舊的貼文沒抓到)' : ''}。依發布日期由新到舊排列。</p>
 <div class="note"><strong>「留言數」不等於活動參與人數</strong>——Facebook API 不提供參與人數(那在遊戲後台)。
 對「留言參加」型的活動,留言數是合理的代理指標。<br>
-獎勵內容是「活動獎勵」四個字之後的整段,一行一項,所以同時有「即可獲得」和「抽出」就會看到兩行。</div>
+獎勵名稱是從「活動獎勵」之後的每一行清出來的(去掉「參與活動即可獲得」這類描述與「每帳號限領 1 次」這種名額附註,
+但<strong>保留「（7天）」「（永久）」</strong>,因為那是獎勵屬性)。<br>
+<strong>發放方式</strong>:出現「抽出/抽獎」算<span style="color:#9a6a1e;font-weight:700">留言就抽</span>,
+出現「即可獲得/限領」算<span style="color:#2f7d4f;font-weight:700">留言就送</span>,兩者都沒有就標「未標示」。
+同一個活動常常兩種都有,所以會看到兩行。</div>
 <p><a class="dl" href="${escapeHtml(csvUrl)}">⤓ 下載 CSV(Excel 可直接開)</a></p>
 <div class="card">${rows.length
-    ? `<table><thead><tr><th>日期</th><th>活動標題（第一行）</th><th>獎勵內容</th><th>留言</th><th>心情</th><th>分享</th><th></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`
+    ? `<table><thead><tr><th>日期</th><th>活動標題（第一行）</th><th>獎勵名稱</th><th>發放方式</th><th>留言</th><th>心情</th><th>分享</th><th></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`
     : `<p class="empty">最近 ${months} 個月掃過的 ${scanned} 則貼文裡,沒有一則文案含「活動獎勵」四個字。可以把 months 調大(例如網址加 ?months=36),或告訴我你們活動貼文實際的欄位寫法。</p>`}</div>
 </div></body></html>`;
 }
