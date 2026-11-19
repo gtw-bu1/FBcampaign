@@ -21,6 +21,9 @@ export const REWARD_FIELD = '活動獎勵';
 const STOP_PATTERNS = [
   /^【/,                                    // 下一個區塊標題
   /活動(方式|辦法|時間|期間|檔期|資格|對象|規則|說明|連結|網址)/,
+  // 「✨獎勵發放時間:9/17 維護後」是時程不是獎勵,要停(2026-11-19 截圖第一列)
+  /獎勵(?:發放|領取|寄送)?(?:時間|方式|日期)/,
+  /發放(?:時間|日期)/,
   /(參加|參與)方式/,
   /注意事項/,
   /得獎(公布|名單|通知)/,
@@ -119,12 +122,68 @@ const GIVE_PATTERNS = [
   /全員/, /無條件/
 ];
 
+// 2026-11-19 使用者第二次回報(截圖標了四處):
+// 「寫共幾名的不是很明顯就是用抽的嗎?你為甚麼不自己判斷一下」
+//
+// 他標的真實案例:
+//   「輪迴脈衝*1、全新男角巴德羅*1,共兩名」            ← 只有名額,沒有任何「抽」字
+//   「輪迴脈衝*1、全新女角*1(5/14販售),共兩名」
+//   「拳皇鬥士－伊莎貝拉 (永久)＋碧藍羽翼 (永久)＊１名」  ← 全角數字「１名」
+//
+// 推論很直接:**獎勵有名額上限 = 不是人人有獎 = 用抽的**。
+// 另外標題寫「梗圖創作抽好禮」「抽出新角色」也是明示,但不符合既有的
+// 「抽出/抽獎/留言抽」任何一條(「作抽好禮」中間卡了字),所以標題要用寬鬆的「抽」去認。
+
+// 全角數字與中文數字正規化,否則「＊１名」「共兩名」都比不到
+const FULLWIDTH_DIGITS = /[０-９]/g;
+const CN_NUM = { 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10 };
+
+export function normalizeNumbers(text) {
+  let t = String(text ?? '').replace(FULLWIDTH_DIGITS, (d) =>
+    String.fromCharCode(d.charCodeAt(0) - 0xff10 + 0x30)
+  );
+  // 只轉「數字 + 名/位/份」的中文數字,避免動到獎勵名稱裡的字(例:「三星武器」)
+  t = t.replace(/[一二兩三四五六七八九十]+(?=\s*(?:名|位|份))/g, (m) => {
+    if (m.length === 1) return String(CN_NUM[m] ?? m);
+    if (m === '十') return '10';
+    // 十幾 / 幾十
+    if (m.startsWith('十')) return String(10 + (CN_NUM[m[1]] ?? 0));
+    if (m.endsWith('十')) return String((CN_NUM[m[0]] ?? 0) * 10);
+    return m;
+  });
+  return t;
+}
+
+// 名額型:有「共N名」「N名」「N位」就是有中獎上限 → 用抽的
+const QUOTA_PATTERNS = [
+  /(?:共|計|抽出|選出)?\s*\d+\s*(?:名|位)/
+];
+// 但「前 100 名」「限量」「額滿為止」是先到先得,不是抽
+const FIRST_COME = /前\s*\d+\s*(?:名|位)|限量|先到先得|先搶先贏|額滿為止|送完為止/;
+
+// 寬鬆的「抽」:只用在標題與整篇文案的 fallback。
+// 排除遊戲裡本來就有的抽卡詞,否則「史詩解碼器」那種抽卡道具會被誤判成抽獎活動。
+const LOOSE_DRAW = /抽/;
+const NOT_LOTTERY = /抽卡|轉蛋|抽獎券|抽空|抽屜|抽成/;
+
 export function classifyDelivery(line) {
-  const t = typeof line === 'string' ? line : '';
+  const t = normalizeNumbers(line);
   if (!t.trim()) return DELIVERY.UNKNOWN;
-  // 「抽」優先:「抽出 X 共1名」有時也寫「每人限領」,但抽才是關鍵動作
+  // 1) 明示「抽」優先:「抽出 X 共1名」有時也寫「每人限領」,但抽才是關鍵動作
   if (DRAW_PATTERNS.some((re) => re.test(t))) return DELIVERY.DRAW;
+  // 2) 明示「送」
   if (GIVE_PATTERNS.some((re) => re.test(t))) return DELIVERY.GIVE;
+  // 3) 都沒明示,但有中獎名額 → 抽(先到先得的寫法除外)
+  if (!FIRST_COME.test(t) && QUOTA_PATTERNS.some((re) => re.test(t))) return DELIVERY.DRAW;
+  return DELIVERY.UNKNOWN;
+}
+
+// 標題/整篇文案用的寬鬆版:嚴格規則跑完還是不知道時,只要出現「抽」就當抽
+export function classifyDeliveryLoose(text) {
+  const strict = classifyDelivery(text);
+  if (strict !== DELIVERY.UNKNOWN) return strict;
+  const t = normalizeNumbers(text);
+  if (LOOSE_DRAW.test(t) && !NOT_LOTTERY.test(t)) return DELIVERY.DRAW;
   return DELIVERY.UNKNOWN;
 }
 
@@ -148,7 +207,9 @@ const LEAD_PATTERNS = [
 // 括號內容長這樣就是名額/次數附註,可以清
 const NOTE_IN_PAREN = /限領|限一次|限 ?\d+ ?次|每人|每帳號|每位|名額|數量有限|隨機|不重複/;
 const TAIL_PATTERNS = [
-  /\s*共\s*\d+\s*(?:名|位|份|組|個|人)\s*$/,
+  // 「共N名」是名額附註不是獎勵數量,要清掉。
+  // 數字含中文與全角(「共兩名」「共２名」)——2026-11-19 使用者截圖的案例。
+  /\s*[,、,]?\s*共\s*[\d０-９一二兩三四五六七八九十]+\s*(?:名|位|份|組|個|人)\s*$/,
   /\s*[,、。!！]\s*$/
 ];
 
@@ -188,7 +249,8 @@ export function cleanRewardName(line, maxLen = 40) {
 // 一行獎勵 → { name, delivery }
 // fallbackText:獎勵行裡找不到線索時拿整篇文案再找一次
 // (「【留言送解碼器】」這種寫在標題的情況)
-export function parseRewardLine(line, fallbackText = '') {
+// title:標題單獨再給一次,用寬鬆規則認(「梗圖創作抽好禮」「抽出新角色」)
+export function parseRewardLine(line, fallbackText = '', title = '') {
   const raw = String(line ?? '').trim();
   // 「厄之章服裝選擇箱 ×1／留言就抽」:斜線左邊是獎勵、右邊是發放方式
   const slash = /^(.+?)\s*[／\/]\s*(.+)$/.exec(raw);
@@ -201,9 +263,21 @@ export function parseRewardLine(line, fallbackText = '') {
 
   let delivery = classifyDelivery(deliveryHint);
   if (delivery === DELIVERY.UNKNOWN && deliveryHint !== raw) delivery = classifyDelivery(raw);
+  // 標題的線索比整篇可靠,先問標題
+  if (delivery === DELIVERY.UNKNOWN && title) delivery = classifyDeliveryLoose(title);
   if (delivery === DELIVERY.UNKNOWN && fallbackText) delivery = classifyDelivery(fallbackText);
+  if (delivery === DELIVERY.UNKNOWN && fallbackText) delivery = classifyDeliveryLoose(fallbackText);
 
   return { name: cleanRewardName(namePart), delivery, raw };
+}
+
+// 同一則貼文裡,其他行已經標出方式、只剩某幾行未標示時,讓它們繼承。
+// 條件:已標示的方式只有一種。同時有抽與送就不猜(猜錯比留白糟)。
+export function inheritDelivery(items = []) {
+  const known = new Set(items.map((i) => i.delivery).filter((d) => d && d !== DELIVERY.UNKNOWN));
+  if (known.size !== 1) return items;
+  const only = Array.from(known)[0];
+  return items.map((i) => (i.delivery === DELIVERY.UNKNOWN ? { ...i, delivery: only } : i));
 }
 
 // 整則活動的發放方式總結:同時有抽與送就是「兩種都有」
@@ -217,12 +291,15 @@ export function summarizeDelivery(items = []) {
 // 整理成報表的一列。只放使用者這次要的欄位,不多塞。
 export function toActivityRow(post) {
   const rewardLines = extractRewardLines(post.message);
-  // 整篇文案當 fallback:發放方式常常寫在標題(【留言送解碼器】)而不是獎勵行
-  const rewards = rewardLines.map((l) => parseRewardLine(l, post.message));
+  const title = extractTitle(post.message);
+  // 整篇文案 + 標題當 fallback:發放方式常常寫在標題(【留言送解碼器】、抽出新角色)
+  const rewards = inheritDelivery(
+    rewardLines.map((l) => parseRewardLine(l, post.message, title))
+  );
   return {
     id: post.id || '',
     date: post.createdTime ? String(post.createdTime).slice(0, 10) : '',
-    title: extractTitle(post.message),
+    title,
     rewardLines,
     rewards,
     delivery: summarizeDelivery(rewards),
