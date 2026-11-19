@@ -96,14 +96,33 @@ export const DELIVERY = {
   UNKNOWN: '未標示'
 };
 
+// 2026-11-19 使用者回報「一堆未標示」,三個真實案例全部漏判,原因有三個:
+//
+// 1. **最直白的詞沒列。** 他文案直接寫「留言就抽」,我卻只列了「抽出/抽獎/抽選」,
+//    偏偏漏掉「留言抽」「留言送」這種最常見的寫法。
+// 2. **斜線格式沒處理。**「厄之章服裝選擇箱 ×1／留言就抽」用全角斜線把獎勵與方式分開。
+// 3. **只看獎勵那幾行。**「【留言送解碼器】」寫在標題裡,獎勵行只有獎勵名稱,
+//    所以在獎勵行裡永遠找不到線索 → 必須退回整篇文案再找一次。
+//
 // 判斷放在清理之前做,因為判斷的線索(「抽出」「即可獲得」)正是要被清掉的那些動詞。
-const DRAW_PATTERNS = [/抽出/, /抽獎/, /抽選/, /抽中/, /抽\s*\d/, /中獎/, /幸運/];
-const GIVE_PATTERNS = [/即可獲得/, /即可領取/, /皆可獲得/, /都可獲得/, /人人/, /直接(送|贈|給)/, /即(送|贈)/, /免費(送|贈|領)/, /限領/];
+const DRAW_PATTERNS = [
+  /留言[^\n]{0,4}抽/,        // 留言就抽、留言抽、留言+抽、留言即抽
+  /抽出/, /抽獎/, /抽選/, /抽中/, /抽\s*\d/, /中獎/, /幸運/,
+  /[／\/]\s*抽/,              // 「獎勵／抽」
+  /抽\s*[\d一二三四五六七八九十]+\s*(?:名|位|份|組)/
+];
+const GIVE_PATTERNS = [
+  /留言[^\n]{0,4}(?:送|贈|得|領|拿)/,   // 留言就送、留言送、留言即贈、留言可領
+  /即可獲得/, /即可領取/, /皆可獲得/, /都可獲得/, /人人/,
+  /直接(?:送|贈|給)/, /即(?:送|贈)/, /免費(?:送|贈|領)/, /限領/,
+  /[／\/]\s*(?:送|贈)/,       // 「獎勵／送」
+  /全員/, /無條件/
+];
 
 export function classifyDelivery(line) {
   const t = typeof line === 'string' ? line : '';
   if (!t.trim()) return DELIVERY.UNKNOWN;
-  // 「抽」優先:「參與玩家中抽出 X 共1名」有時也寫「每人限領」,但抽才是關鍵動作
+  // 「抽」優先:「抽出 X 共1名」有時也寫「每人限領」,但抽才是關鍵動作
   if (DRAW_PATTERNS.some((re) => re.test(t))) return DELIVERY.DRAW;
   if (GIVE_PATTERNS.some((re) => re.test(t))) return DELIVERY.GIVE;
   return DELIVERY.UNKNOWN;
@@ -167,8 +186,24 @@ export function cleanRewardName(line, maxLen = 40) {
 }
 
 // 一行獎勵 → { name, delivery }
-export function parseRewardLine(line) {
-  return { name: cleanRewardName(line), delivery: classifyDelivery(line), raw: String(line ?? '').trim() };
+// fallbackText:獎勵行裡找不到線索時拿整篇文案再找一次
+// (「【留言送解碼器】」這種寫在標題的情況)
+export function parseRewardLine(line, fallbackText = '') {
+  const raw = String(line ?? '').trim();
+  // 「厄之章服裝選擇箱 ×1／留言就抽」:斜線左邊是獎勵、右邊是發放方式
+  const slash = /^(.+?)\s*[／\/]\s*(.+)$/.exec(raw);
+  let namePart = raw;
+  let deliveryHint = raw;
+  if (slash && /抽|送|贈|領/.test(slash[2]) && slash[2].length <= 12) {
+    namePart = slash[1].trim();
+    deliveryHint = slash[2].trim();
+  }
+
+  let delivery = classifyDelivery(deliveryHint);
+  if (delivery === DELIVERY.UNKNOWN && deliveryHint !== raw) delivery = classifyDelivery(raw);
+  if (delivery === DELIVERY.UNKNOWN && fallbackText) delivery = classifyDelivery(fallbackText);
+
+  return { name: cleanRewardName(namePart), delivery, raw };
 }
 
 // 整則活動的發放方式總結:同時有抽與送就是「兩種都有」
@@ -182,7 +217,8 @@ export function summarizeDelivery(items = []) {
 // 整理成報表的一列。只放使用者這次要的欄位,不多塞。
 export function toActivityRow(post) {
   const rewardLines = extractRewardLines(post.message);
-  const rewards = rewardLines.map(parseRewardLine);
+  // 整篇文案當 fallback:發放方式常常寫在標題(【留言送解碼器】)而不是獎勵行
+  const rewards = rewardLines.map((l) => parseRewardLine(l, post.message));
   return {
     id: post.id || '',
     date: post.createdTime ? String(post.createdTime).slice(0, 10) : '',

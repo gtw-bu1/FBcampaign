@@ -181,6 +181,51 @@ test('CSV 有獎勵名稱與發放方式兩欄', () => {
   assert.ok(csv.includes('留言就抽'));
 });
 
+// --- 2026-11-19 使用者回報「一堆未標示」的三個真實案例,全部當回歸測試 ---
+
+test('最直白的寫法必須判對:留言就抽 / 留言送 等', () => {
+  // 我原本只列「抽出/抽獎/抽選」,偏偏漏掉最常見的「留言抽」「留言送」
+  assert.equal(classifyDelivery('留言就抽'), DELIVERY.DRAW);
+  assert.equal(classifyDelivery('留言抽'), DELIVERY.DRAW);
+  assert.equal(classifyDelivery('留言＋抽'), DELIVERY.DRAW);
+  assert.equal(classifyDelivery('留言送'), DELIVERY.GIVE);
+  assert.equal(classifyDelivery('留言就送'), DELIVERY.GIVE);
+  assert.equal(classifyDelivery('留言即贈'), DELIVERY.GIVE);
+});
+
+test('斜線格式:「厄之章服裝選擇箱 ×1／留言就抽」要切出名稱與方式', () => {
+  const row = toActivityRow({
+    message: '【災厄學堂大問答系列】第一課開課啦\n活動獎勵\n厄之章服裝選擇箱 ×1／留言就抽\n活動時間\n11/20 - 11/30'
+  });
+  assert.equal(row.rewards.length, 1);
+  assert.equal(row.rewards[0].name, '厄之章服裝選擇箱 ×1', '斜線後面的方式不可留在名稱裡');
+  assert.equal(row.rewards[0].delivery, DELIVERY.DRAW);
+});
+
+test('發放方式寫在標題時也要判對:【留言送解碼器】', () => {
+  // 獎勵行只有「活動解碼器 ×3」,線索在標題裡 → 必須退回整篇文案找
+  const row = toActivityRow({
+    message: '【留言送解碼器】快來為心中支持的殭屍應援！\n活動獎勵\n活動解碼器 ×3\n活動時間\n11/20 - 11/30'
+  });
+  assert.equal(row.rewards[0].name, '活動解碼器 ×3');
+  assert.equal(row.rewards[0].delivery, DELIVERY.GIVE, '標題有「留言送」就不該是未標示');
+});
+
+test('同一則裡兩種斜線格式各自判對', () => {
+  const row = toActivityRow({
+    message: '【災厄學堂大問答｜第五課】\n活動獎勵\n厄之章服裝選擇箱 ×1／留言就抽\n限定稱號 x1／留言就送'
+  });
+  assert.equal(row.rewards[0].delivery, DELIVERY.DRAW);
+  assert.equal(row.rewards[1].delivery, DELIVERY.GIVE);
+  assert.equal(row.delivery, '兩種都有');
+});
+
+test('斜線後面不是發放方式時不可亂切', () => {
+  // 「造型A／造型B」是兩個獎勵並列,不是獎勵+方式
+  const p = parseRewardLine('限定造型A／限定造型B');
+  assert.match(p.name, /限定造型A／限定造型B/);
+});
+
 test('CSV 空資料也回得出表頭', () => {
   assert.ok(activityCsv([]).includes('活動標題'));
 });
