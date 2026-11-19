@@ -4,8 +4,13 @@ import {
   extractReward, extractPeriod, extractMethod, extractQuantity, extractValue,
   toRewardRow, rewardCsv
 } from '../src/reward-extract.mjs';
-import { groupByReward, sinceSeconds, escapeHtml } from '../api/reward-report.js';
+import { sinceSeconds, escapeHtml } from '../api/reward-report.js';
 import { classifyPost } from '../src/post-types.mjs';
+
+// 註:reward-extract.mjs 的欄位抽取保留給「下一步:判斷獎勵魅力度與發放方式」使用。
+// 目前的報表(api/reward-report.js)依使用者 2026-11-19 的指示改用
+// src/activity-extract.mjs 的簡化版(標題 + 多行獎勵 + 留言數),
+// 測試見 tests/activity-extract.test.mjs。
 
 // 依據使用者說的「活動方式 / 活動獎勵 / 活動時間」欄位寫法
 const SAMPLE = `【和艾莉的秋冬約會】
@@ -61,26 +66,6 @@ test('toRewardRow 整理成報表的一列,含類型判定', () => {
   assert.equal(row.quantity, 3);
   assert.equal(row.comments, 300);
   assert.match(row.reward, /艾莉/);
-});
-
-test('groupByReward 依留言中位數排序,高的在前', () => {
-  const rows = [
-    { reward: '永久造型', comments: 300, engagement: 400, date: '2026-01-01' },
-    { reward: '永久造型', comments: 200, engagement: 300, date: '2026-02-01' },
-    { reward: '體驗3天', comments: 10, engagement: 40, date: '2026-03-01' }
-  ];
-  const g = groupByReward(rows);
-  assert.equal(g[0].reward, '永久造型');
-  assert.equal(g[0].count, 2);
-  assert.equal(g[0].medianComments, 250);
-  assert.equal(g[0].maxComments, 300);
-  assert.equal(g[1].reward, '體驗3天');
-});
-
-test('文案沒寫獎勵的歸到「(文案沒寫獎勵)」,不會消失', () => {
-  const g = groupByReward([{ reward: '', comments: 5, engagement: 9, date: '2026-01-01' }]);
-  assert.equal(g[0].reward, '(文案沒寫獎勵)');
-  assert.equal(g[0].count, 1);
 });
 
 test('sinceSeconds 算出幾個月前的秒數', () => {
