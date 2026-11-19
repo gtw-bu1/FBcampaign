@@ -79,8 +79,12 @@ a.dl{display:inline-block;background:#38372f;color:#fff;border-radius:7px;paddin
 對「留言參加」型的活動,留言數是合理的代理指標。<br>
 獎勵名稱是從「活動獎勵」之後的每一行清出來的(去掉「參與活動即可獲得」這類描述與「每帳號限領 1 次」這種名額附註,
 但<strong>保留「（7天）」「（永久）」</strong>,因為那是獎勵屬性)。<br>
-<strong>發放方式</strong>:出現「抽出/抽獎」算<span style="color:#9a6a1e;font-weight:700">留言就抽</span>,
-出現「即可獲得/限領」算<span style="color:#2f7d4f;font-weight:700">留言就送</span>,兩者都沒有就標「未標示」。
+<strong>發放方式</strong>:寫「抽出/抽獎/留言就抽」算<span style="color:#9a6a1e;font-weight:700">留言就抽</span>;
+寫「即可獲得/限領/留言就送」算<span style="color:#2f7d4f;font-weight:700">留言就送</span>。
+沒寫這些字但有<strong>中獎名額</strong>(「共兩名」「＊１名」)也算留言就抽——有上限就不是人人有獎;
+但「前100名」「限量」「送完為止」是先到先得,算送。
+線索寫在<strong>標題</strong>(【留言送解碼器】、梗圖創作抽好禮)也認得;
+同一則其他行判得出來、只有某行沒寫時,那行會跟著繼承。
 同一個活動常常兩種都有,所以會看到兩行。</div>
 <p><a class="dl" href="${escapeHtml(csvUrl)}">⤓ 下載 CSV(Excel 可直接開)</a></p>
 <div class="card">${rows.length
