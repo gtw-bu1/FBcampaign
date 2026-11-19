@@ -77,6 +77,10 @@ export function readGraphError(payload, status) {
   if (/pages_read_user_content/.test(e.message || '')) {
     return '權杖缺少 pages_read_user_content 權限,讀不到粉專的貼文清單。請在 Meta 應用程式的使用案例權限裡加上 pages_read_user_content,然後重新產生權杖。(這個權限用來讀粉專自己的貼文與其互動數,不是讀私人訊息。)';
   }
+  // code 200 不代表一定是權限問題,下面這個是程式沒帶憑證造成的,別誤導使用者去要權限
+  if (/valid app id|application does not exist/i.test(e.message || '')) {
+    return `這是程式的錯誤,不是你的設定問題:向 Facebook 要資料時沒有帶上憑證(${detail})。請把這段訊息回報給開發者。`;
+  }
   if (e.code === 200 || e.code === 10) {
     return `權限不足。讀取貼文清單需要 pages_read_user_content(加上既有的 pages_read_engagement)。(${detail})`;
   }
@@ -92,7 +96,7 @@ export async function graphGetAll(path, token, { maxPages = MAX_PAGES, timeoutMs
   let pages = 0;
   while (pages < maxPages) {
     const payload = next
-      ? await graphGetUrl(next, timeoutMs)
+      ? await graphGetUrl(next, token, timeoutMs)
       : await graphGet(path, token, timeoutMs);
     pages++;
     const batch = payload?.data || [];
@@ -103,9 +107,15 @@ export async function graphGetAll(path, token, { maxPages = MAX_PAGES, timeoutMs
   return { data: out, pages, truncated: Boolean(next) };
 }
 
-// paging.next 是完整網址(已含 access_token),直接打
-async function graphGetUrl(url, timeoutMs = 30000) {
-  const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+// paging.next 是完整網址,但**不一定帶 access_token**——
+// 我們第一頁是用 Authorization header 送權杖的,Facebook 回的 next 就不會含 token。
+// 2026-11-19 實測:忘記帶 header 去打 next,第二頁會回
+// `(#200) Provide valid app ID`(看起來像權限問題,其實是沒有憑證)。
+async function graphGetUrl(url, token, timeoutMs = 30000) {
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(timeoutMs)
+  });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     const error = new Error(readGraphError(payload, response.status));
