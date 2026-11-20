@@ -55,6 +55,74 @@ export function durationDays(start, end) {
   return d > 0 ? d : null;
 }
 
+// --- 從文案抽出活動檔期 ---
+//
+// 2026-11-20 使用者:「預計發布日就等於活動開始日,這是你文案就可以抓到的」。
+// 掃過 321 則貼文的寫法,格式很雜但都在「活動時間/活動期間:」後面:
+//   「2026/09/02 14:00～ 2026/09/16 10:00」「9/9 維護後 ～ 9/23 維護前」
+//   「2026-07-08 維護後 ~ 2026-07-22 維護前」「即日起 ～ 9/16（三）維護前」
+//   「2026.5.13 維護前」「4/1 ~ 4/15 23:59」
+// 注意要擋掉「活動期間內天天20:00都有限時道具」這種沒有日期範圍的句子。
+const DATE_LINE = /(活動時間|活動期間|活動日期|檔期|投票活動時間)\s*[:：]/;
+const FULL_DATE = /(\d{4})\s*[\/\-.]\s*(\d{1,2})\s*[\/\-.]\s*(\d{1,2})/g;
+const SHORT_DATE = /(?<![\d:])(\d{1,2})\s*\/\s*(\d{1,2})(?![\d:])/g;
+const FROM_NOW = /即日起|即刻起|馬上|現在起/;
+
+const pad = (n) => String(n).padStart(2, '0');
+
+export function extractDates(message, { refDate = '' } = {}) {
+  const text = String(message ?? '');
+  const refYear = Number(String(refDate || new Date().toISOString().slice(0, 10)).slice(0, 4))
+    || new Date().getFullYear();
+
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!DATE_LINE.test(line)) continue;
+    const after = line.slice(line.search(/[:：]/) + 1);
+
+    const found = [];
+    for (const m of after.matchAll(FULL_DATE)) {
+      found.push({ at: m.index, date: `${m[1]}-${pad(m[2])}-${pad(m[3])}` });
+    }
+    if (found.length < 2) {
+      // 沒有完整日期才用短格式,否則「2026/09/02」會被切成 09/02 重複抓
+      const used = found.map((f) => f.date.slice(5).replace('-', '/'));
+      for (const m of after.matchAll(SHORT_DATE)) {
+        const md = `${pad(m[1])}-${pad(m[2])}`;
+        if (used.includes(md.replace('-', '/'))) continue;
+        found.push({ at: m.index, date: `${refYear}-${md}`, short: true });
+      }
+    }
+    if (!found.length) continue;
+
+    found.sort((a, b) => a.at - b.at);
+    let start = found[0].date;
+    let end = found[1]?.date || '';
+
+    // 「即日起 ～ 9/16」只會抓到一個日期,那是結束日
+    if (found.length === 1 && FROM_NOW.test(after)) {
+      end = start;
+      start = refDate || new Date().toISOString().slice(0, 10);
+    }
+
+    // 短格式沒有年份:跨年的活動要把結束日往後推一年。
+    // 但只在「推完檔期還合理」時才推——「即日起 ～ 9/16」用今天當開始日的話,
+    // 推一年會變成 301 天的活動,那顯然是判錯(2026-11-20 實測)。
+    if (start && end && end < start) {
+      const bumped = `${Number(end.slice(0, 4)) + 1}${end.slice(4)}`;
+      const days = durationDays(start, bumped);
+      end = days !== null && days <= 120 ? bumped : end;
+    }
+    if (start && !end) end = start;
+    return {
+      start, end, source: line.slice(0, 60),
+      // 算不出合理檔期時標記起來,面板會提醒使用者自己確認
+      suspicious: Boolean(start && end && (durationDays(start, end) === null || durationDays(start, end) > 120))
+    };
+  }
+  return { start: '', end: '', source: '', suspicious: false };
+}
+
 // --- 品項正規化:把文案抽到的名稱對應到基準表裡的品項 ---
 const norm = (s) => String(s ?? '').replace(/\s/g, '').replace(/級/g, '')
   .replace(/[×xX＊*]/g, '*').replace(/[０-９]/g, (d) => String.fromCharCode(d.charCodeAt(0) - 0xff10 + 0x30));
@@ -75,6 +143,16 @@ export function parseQty(piece) {
 export function matchItem(name, qty, base = baseline) {
   const want = norm(name);
   if (!want) return null;
+
+  // 先找完全相符的。
+  // 不這樣做的話「服裝角色解碼器 ×3」會被模糊比對吃進「超A級服裝角色解碼器」,
+  // 但基準表裡那是兩個不同品項(2026-11-20 實測抓到)。
+  const exact = base.items.filter((i) => norm(i.item) === want);
+  if (exact.length) {
+    const sameQty = exact.filter((i) => String(i.qty) === String(qty));
+    return (sameQty.length ? sameQty : exact).slice().sort((a, b) => b.posts - a.posts)[0];
+  }
+
   const candidates = base.items.filter((i) => {
     const k = norm(i.item);
     return k && (want.includes(k) || k.includes(want));
@@ -114,14 +192,21 @@ export function detectDraft(message, { start = '', end = '', base = baseline } =
   }
 
   const deliveries = [...new Set(parsed.map((p) => p.delivery).filter((d) => d && d !== '未標示'))];
+  // 檔期:呼叫方沒指定就從文案抓(使用者要求「預計發布日 = 活動開始日」)
+  const fromText = extractDates(text);
+  const useStart = start || fromText.start;
+  const useEnd = end || fromText.end;
   return {
     isCampaign: isCampaignPost(text),
     rewardLines: lines,
     rewards,
     difficulty: classifyDifficulty(text),
     delivery: deliveries.length === 0 ? '未標示' : deliveries.length === 1 ? deliveries[0] : '兩種都有',
-    start, end,
-    duration: durationDays(start, end)
+    start: useStart, end: useEnd,
+    dateSource: fromText.source,
+    dateSuspicious: Boolean(fromText.suspicious),
+    dateFromText: Boolean(fromText.start),
+    duration: durationDays(useStart, useEnd)
   };
 }
 

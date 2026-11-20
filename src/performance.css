@@ -36,3 +36,7 @@
 .pending-box>strong{font-size:11px;color:#a5552c;display:block;margin-bottom:6px}
 .pending-box .generate{margin-top:9px;padding:11px 14px}
 .pending-count{font-size:9px;color:#b5a695;white-space:nowrap;flex:0 0 auto}
+
+.auto-hint{font-size:10px;line-height:1.8;margin:0 0 13px !important}
+.link-btn{background:none;border:0;padding:0;color:#b65c32;font-size:10px;text-decoration:underline;cursor:pointer}
+.link-btn:hover{color:#8d3f1d}

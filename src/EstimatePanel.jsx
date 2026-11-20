@@ -1,7 +1,12 @@
-// 活動成效預估面板。2026-11-20 整個重做,取代原本「手填歷史活動 CSV」那一套。
+// 活動成效預估面板。
 //
-// 流程照使用者指定的四段:進行預估 → AI 初判(可改)→ 預估成效 → 對標活動。
-// 重點:**初判的每一項都可以改**。文案寫法千變萬化,判錯時她改一下比我猜對更實在。
+// 2026-11-20 使用者要求:「預計發布日就等於活動開始日,這是你文案就可以抓到的,
+// 你可以預設,但保留讓我改的空間」「活動獎勵 / 規模(抽/送) / 參與難度 等
+// 你一樣都先預設,用目前有的資料去抓,或是讓我新增/調整」。
+//
+// 所以:**文案一貼上,所有欄位就自動填好**,不用按任何按鈕;
+// 她改過的欄位會被記住(存在 overrides),文案再動也不會被蓋掉;
+// 按「重新判讀文案」才會把手動值清掉、全部回到自動判讀。
 import React, { useMemo, useState, useEffect } from 'react';
 import {
   detectDraft, estimate, durationDays,
@@ -29,7 +34,6 @@ function writeStored(key, value) {
 const today = () => new Date().toISOString().slice(0, 10);
 const num = (v) => new Intl.NumberFormat('zh-TW').format(v);
 
-// 基準表裡的品項,給下拉選單用。樣本多的排前面
 function itemOptions(base) {
   return base.items
     .slice()
@@ -41,19 +45,17 @@ function itemOptions(base) {
 }
 
 export default function EstimatePanel({ activity = {}, copy = '', embedded = false }) {
-  // 預估的文字來源:優先用 AI 生成的文案,沒有就用活動欄位拼出來
+  // 預估的文字來源:優先用 AI 生成的文案,沒有就用左邊填的活動欄位拼起來
   const fallbackText = useMemo(() => [
     activity.name, activity.time, activity.rewards, activity.conditions
   ].filter(Boolean).join('\n'), [activity.name, activity.time, activity.rewards, activity.conditions]);
 
   const [text, setText] = useState(copy || fallbackText);
   const [touchedText, setTouchedText] = useState(false);
-  const [publishDate, setPublishDate] = useState(today());
-  const [start, setStart] = useState('');
-  const [end, setEnd] = useState('');
-  const [judged, setJudged] = useState(null);     // 初判結果(可被使用者改)
+  const [over, setOver] = useState({});        // 使用者手動改過的欄位
   const [season, setSeason] = useState(false);
   const [note, setNote] = useState('');
+
   const [base, setBase] = useState(() => readStored(BASE_KEY) || BASELINE);
   const [aliases, setAliases] = useState(() => readStored(ALIAS_KEY) || []);
   const [pendingPick, setPendingPick] = useState({});
@@ -62,6 +64,70 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
 
   const ITEM_OPTIONS = useMemo(() => itemOptions(base), [base]);
   const isUpdated = base !== BASELINE && base.generatedAt !== BASELINE.generatedAt;
+
+  useEffect(() => {
+    if (touchedText) return;
+    setText(copy || fallbackText);
+  }, [copy, fallbackText, touchedText]);
+
+  // 自動判讀:文案或基準表一變就重算
+  const auto = useMemo(() => detectDraft(text, { base }), [text, base]);
+
+  // 自動值 + 手動覆寫。使用者改過的欄位優先
+  const view = useMemo(() => {
+    const start = over.start ?? auto.start;
+    const end = over.end ?? auto.end;
+    return {
+      // 「預計發布日 = 活動開始日」,抓不到就用今天
+      publishDate: over.publishDate ?? (start || today()),
+      start, end,
+      difficulty: over.difficulty ?? auto.difficulty,
+      delivery: over.delivery ?? auto.delivery,
+      rewards: over.rewards ?? auto.rewards.map((r) => ({
+        raw: r.raw,
+        key: r.matchedItem ? r.matchedItem + '｜' + r.matchedQty : ''
+      }))
+    };
+  }, [auto, over]);
+
+  const result = useMemo(() => {
+    if (!text.trim()) return null;
+    const detected = {
+      rewards: view.rewards.map((r) => {
+        const item = base.items.find((i) => i.item + '｜' + i.qty === r.key);
+        return {
+          raw: r.raw,
+          matchedItem: item ? item.item : '',
+          matchedQty: item ? String(item.qty) : '',
+          grade: item ? item.grade : '',
+          score: item ? item.score : null
+        };
+      }),
+      difficulty: view.difficulty,
+      delivery: view.delivery,
+      start: view.start,
+      end: view.end
+    };
+    const keys = view.rewards.map((r) => r.key).filter(Boolean);
+    return estimate(detected, {
+      publishDate: view.publishDate,
+      useSeasonFactor: season,
+      itemKeys: keys.length ? keys : null,
+      base
+    });
+  }, [view, season, base, text]);
+
+  const duration = durationDays(view.start, view.end);
+  const set = (key, value) => setOver((cur) => ({ ...cur, [key]: value }));
+  const setReward = (index, key) => setOver((cur) => ({
+    ...cur, rewards: view.rewards.map((r, i) => (i === index ? { ...r, key } : r))
+  }));
+  const addReward = () => setOver((cur) => ({
+    ...cur, rewards: [...view.rewards, { raw: '（手動加入）', key: '' }]
+  }));
+  const removeReward = (index) => setOver((cur) => ({
+    ...cur, rewards: view.rewards.filter((_, i) => i !== index)
+  }));
 
   // 一鍵更新:重新拉粉專貼文,重算基準表
   async function refreshBaseline(extraAliases = aliases) {
@@ -73,9 +139,9 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
         headers: { 'Content-Type': 'application/json', ...(accessCode.trim() ? { 'x-access-code': accessCode.trim() } : {}) },
         body: JSON.stringify({ months: 24, aliases: extraAliases })
       });
-      const result = await response.json().catch(() => null);
-      if (!response.ok) throw Error(result?.error || `更新失敗（${response.status}）。`);
-      const next = result.baseline;
+      const json = await response.json().catch(() => null);
+      if (!response.ok) throw Error(json?.error || `更新失敗（${response.status}）。`);
+      const next = json.baseline;
       setBase(next);
       setAliases(extraAliases);
       writeStored(BASE_KEY, next);
@@ -96,7 +162,6 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
     }
   }
 
-  // 營運指定新道具的品類 → 存起來並重新更新一次
   function applyCategories() {
     const added = Object.entries(pendingPick)
       .filter(([, to]) => to && REWARD_CATEGORIES.includes(to))
@@ -115,73 +180,10 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
     setAliases([]);
     writeStored(BASE_KEY, null);
     writeStored(ALIAS_KEY, null);
-    setNote('已回到工具內建的基準表（' + BASELINE.generatedAt + '）。');
+    setNote(`已回到工具內建的基準表（${BASELINE.generatedAt}）。`);
   }
 
-  // 文案或活動內容變了,把來源文字跟著更新(除非使用者自己改過)
-  useEffect(() => {
-    if (touchedText) return;
-    setText(copy || fallbackText);
-  }, [copy, fallbackText, touchedText]);
-
-  function runDetect() {
-    const source = text.trim();
-    if (!source) { setNote('先填活動內容或產生文案,才有東西可以判讀。'); return; }
-    const d = detectDraft(source, { start, end, base });
-    setJudged({
-      rewards: d.rewards.map((r) => ({
-        raw: r.raw,
-        key: r.matchedItem ? r.matchedItem + '｜' + r.matchedQty : ''
-      })),
-      difficulty: d.difficulty,
-      delivery: d.delivery,
-      start, end,
-      isCampaign: d.isCampaign,
-      rewardLines: d.rewardLines
-    });
-    setNote(d.isCampaign
-      ? ''
-      : '這則文案看起來不像留言互動型活動(沒有要求留言/截圖/投稿,或沒有獎勵物品)。還是可以預估,但請確認初判。');
-  }
-
-  const result = useMemo(() => {
-    if (!judged) return null;
-    const keys = judged.rewards.map((r) => r.key).filter(Boolean);
-    const detected = {
-      rewards: judged.rewards.map((r) => {
-        const item = base.items.find((i) => i.item + '｜' + i.qty === r.key);
-        return {
-          raw: r.raw,
-          matchedItem: item ? item.item : '',
-          matchedQty: item ? String(item.qty) : '',
-          grade: item ? item.grade : '',
-          score: item ? item.score : null
-        };
-      }),
-      difficulty: judged.difficulty,
-      delivery: judged.delivery,
-      start: judged.start,
-      end: judged.end
-    };
-    return estimate(detected, {
-      publishDate: publishDate || judged.start,
-      useSeasonFactor: season,
-      itemKeys: keys.length ? keys : null,
-      base
-    });
-  }, [judged, publishDate, season, base]);
-
-  const duration = durationDays(judged?.start ?? start, judged?.end ?? end);
-
-  function setReward(index, key) {
-    setJudged((cur) => ({ ...cur, rewards: cur.rewards.map((r, i) => (i === index ? { ...r, key } : r)) }));
-  }
-  function addReward() {
-    setJudged((cur) => ({ ...cur, rewards: [...cur.rewards, { raw: '（手動加入）', key: '' }] }));
-  }
-  function removeReward(index) {
-    setJudged((cur) => ({ ...cur, rewards: cur.rewards.filter((_, i) => i !== index) }));
-  }
+  const changed = Object.keys(over).length > 0;
 
   return (
     <section className={embedded ? 'card performance-card embedded' : 'card performance-card'}>
@@ -252,66 +254,72 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
           onChange={(e) => { setText(e.target.value); setTouchedText(true); }}
           placeholder="貼上這次要發的活動文案,或先在左邊填活動內容、按 AI 生成文案" />
       </label>
+      <p className="muted auto-hint">
+        下面的欄位都是從文案自動抓的,直接改就會重新預估。
+        {auto.dateFromText && <>　檔期來自文案這一行:<code>{auto.dateSource}</code></>}
+        {!auto.dateFromText && text.trim() && <>　文案裡沒抓到「活動時間」那一行,檔期請自己填。</>}
+        {changed && <>　<button className="link-btn" onClick={() => setOver({})}>↻ 重新判讀文案（清掉我改的）</button></>}
+      </p>
+
       <div className="performance-grid">
         <label className="field">預計發布日
-          <input type="date" value={publishDate} onChange={(e) => setPublishDate(e.target.value)} />
+          <input type="date" value={view.publishDate} onChange={(e) => set('publishDate', e.target.value)} />
         </label>
         <label className="field">活動開始
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+          <input type="date" value={view.start} onChange={(e) => set('start', e.target.value)} />
         </label>
         <label className="field">活動結束
-          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+          <input type="date" value={view.end} onChange={(e) => set('end', e.target.value)} />
+        </label>
+        <label className="field">發放規模（抽／送）
+          <select value={view.delivery} onChange={(e) => set('delivery', e.target.value)}>
+            {DELIVERY_LIST.map((d) => <option key={d}>{d}</option>)}
+          </select>
+        </label>
+        <label className="field">參與難度
+          <select value={view.difficulty} onChange={(e) => set('difficulty', e.target.value)}>
+            {DIFFICULTY_LIST.map((d) => <option key={d}>{d}</option>)}
+          </select>
         </label>
       </div>
-      <button className="generate performance-estimate" onClick={runDetect}>開始預估 <span>→</span></button>
+      <p className="performance-duration">
+        檔期長度:{duration === null ? '填了起迄日期才算得出來' : `${duration} 天（含頭尾）`}
+        {(auto.dateSuspicious || (duration !== null && duration > 120))
+          && '　⚠ 這個檔期長得不合理,我可能把年份判錯了（文案只寫月日時會這樣），請確認一下'}
+        {view.publishDate && view.start && view.publishDate !== view.start && '　（預計發布日跟活動開始日不同,我用發布日去比對同期的粉專熱度）'}
+      </p>
+
+      <div className="judge-rewards">
+        <strong>活動獎勵</strong>
+        {view.rewards.length === 0 && (
+          <p className="forecast-warn">
+            文案裡沒抓到獎勵。可能是寫法我還沒見過,請手動加一項;
+            或先確認文案有寫「活動獎勵」「參加獎勵」之類的欄位。
+          </p>
+        )}
+        {view.rewards.map((r, i) => (
+          <div className="judge-row" key={i}>
+            <span className="judge-raw" title={r.raw}>{r.raw}</span>
+            <select value={r.key} onChange={(e) => setReward(i, e.target.value)}>
+              <option value="">（對不到品項，請選）</option>
+              {ITEM_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            <button className="icon-btn" aria-label={`移除 ${r.raw}`} onClick={() => removeReward(i)}>×</button>
+          </div>
+        ))}
+        <button className="secondary" onClick={addReward}>＋ 手動加一項獎勵</button>
+      </div>
+
+      {!auto.isCampaign && text.trim() && (
+        <p className="forecast-warn">
+          這則文案看起來不像留言互動型活動(沒有要求留言/截圖/投稿,或沒有獎勵物品)。
+          還是會估,但請先確認上面的欄位。
+        </p>
+      )}
       {note && <p className="forecast-warn">{note}</p>}
 
-      {judged && <>
-        <div className="performance-subtitle">② AI 初判（可以改）</div>
-        <p className="muted">
-          以下是我從文案判讀出來的。判錯的地方直接改,改完預估會立刻跟著變。
-          {judged.rewardLines.length > 0 && <>　文案裡抓到的獎勵行:{judged.rewardLines.map((l, i) => <code key={i}>{l}</code>)}</>}
-        </p>
-        <div className="judge-rewards">
-          <strong>獎勵內容</strong>
-          {judged.rewards.length === 0 && <p className="forecast-warn">沒有從文案抓到獎勵,請手動加一項。</p>}
-          {judged.rewards.map((r, i) => (
-            <div className="judge-row" key={i}>
-              <span className="judge-raw">{r.raw}</span>
-              <select value={r.key} onChange={(e) => setReward(i, e.target.value)}>
-                <option value="">（對不到品項，請選）</option>
-                {ITEM_OPTIONS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-              </select>
-              <button className="icon-btn" aria-label={`移除 ${r.raw}`} onClick={() => removeReward(i)}>×</button>
-            </div>
-          ))}
-          <button className="secondary" onClick={addReward}>＋ 手動加一項獎勵</button>
-        </div>
-        <div className="performance-grid">
-          <label className="field">參與方式
-            <select value={judged.difficulty} onChange={(e) => setJudged({ ...judged, difficulty: e.target.value })}>
-              {DIFFICULTY_LIST.map((d) => <option key={d}>{d}</option>)}
-            </select>
-          </label>
-          <label className="field">發放方式
-            <select value={judged.delivery} onChange={(e) => setJudged({ ...judged, delivery: e.target.value })}>
-              {DELIVERY_LIST.map((d) => <option key={d}>{d}</option>)}
-            </select>
-          </label>
-          <label className="field">檔期開始
-            <input type="date" value={judged.start} onChange={(e) => setJudged({ ...judged, start: e.target.value })} />
-          </label>
-          <label className="field">檔期結束
-            <input type="date" value={judged.end} onChange={(e) => setJudged({ ...judged, end: e.target.value })} />
-          </label>
-        </div>
-        <p className="performance-duration">
-          檔期長度:{duration === null ? '填了起迄日期才算得出來' : `${duration} 天（含頭尾）`}
-        </p>
-      </>}
-
       {result && result.ok && <>
-        <div className="performance-subtitle">③ 預估成效</div>
+        <div className="performance-subtitle">② 預估成效</div>
         <div className="performance-result" role="status">
           <div className="performance-range">約 {num(result.expected)} 則留言</div>
           <p>常見區間 {num(result.low)}–{num(result.high)} 則;
@@ -327,7 +335,7 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
           <p className="forecast-caveat">{result.caveat}</p>
         </div>
 
-        <div className="performance-subtitle">④ 對標活動（這個預估參考了哪幾則）</div>
+        <div className="performance-subtitle">③ 對標活動（這個預估參考了哪幾則）</div>
         <p className="muted">
           「校正後」是把當時的留言數換算到 {result.period} 的粉專熱度水準。
           粉專基礎熱度一直在變,不校正就會高估舊活動。
@@ -356,6 +364,7 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
       </>}
 
       {result && !result.ok && <p className="forecast-warn">{result.reason}</p>}
+      {!text.trim() && <p className="muted">貼上文案後就會自動判讀並預估。</p>}
 
       <details className="performance-history">
         <summary>基準表內容 <span>{base.items.length} 種獎勵・{base.activities.length} 則活動 ＋</span></summary>
