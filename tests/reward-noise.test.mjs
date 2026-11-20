@@ -102,4 +102,17 @@ test('整則:非留言型的序號文,row 會標出來', () => {
   const row = toActivityRow(post);
   assert.equal(row.commentDriven, false);
   assert.equal(row.rewards[0].name, '覺醒齒輪箱1個');
+  // 標題「大放送」會判成留言就送,但這則不用留言,標籤要換成中性說法
+  assert.equal(row.delivery, DELIVERY.DIRECT);
+  assert.equal(row.rewards[0].delivery, DELIVERY.DIRECT);
+});
+
+test('留言型活動的標籤不受影響', () => {
+  const post = {
+    id: '1_4',
+    createdTime: '2026-09-09T10:00:00+0800',
+    message: '【留言送解碼器】快來應援！\n活動獎勵\n超A級服裝角色解碼器 ×1\n在貼文下留言即可',
+    comments: 121
+  };
+  assert.equal(toActivityRow(post).delivery, DELIVERY.GIVE);
 });

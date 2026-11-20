@@ -139,8 +139,19 @@ export function extractRewardText(message) {
 export const DELIVERY = {
   DRAW: '留言就抽',
   GIVE: '留言就送',
+  DIRECT: '直接發放',
+  DRAW_NO_COMMENT: '抽獎（非留言）',
   UNKNOWN: '未標示'
 };
+
+// 非留言型活動標「留言就送」會自我矛盾(2026-11-20:「18週年慶序號大放送」
+// 因為標題有「大放送」被判留言就送,但那則根本不用留言)。
+// 呈現時換成中性說法,判定邏輯本身不動。
+export function relabelForNonComment(delivery) {
+  if (delivery === DELIVERY.GIVE) return DELIVERY.DIRECT;
+  if (delivery === DELIVERY.DRAW) return DELIVERY.DRAW_NO_COMMENT;
+  return delivery;
+}
 
 // 2026-11-19 使用者回報「一堆未標示」,三個真實案例全部漏判,原因有三個:
 //
@@ -376,9 +387,13 @@ export function toActivityRow(post) {
   const rewardLines = extractRewardLines(post.message);
   const title = extractTitle(post.message);
   // 整篇文案 + 標題當 fallback:發放方式常常寫在標題(【留言送解碼器】、抽出新角色)
-  const rewards = inheritDelivery(
+  let rewards = inheritDelivery(
     rewardLines.map((l) => parseRewardLine(l, post.message, title))
   );
+  const commentDriven = isCommentDriven(post.message);
+  if (!commentDriven) {
+    rewards = rewards.map((r) => ({ ...r, delivery: relabelForNonComment(r.delivery) }));
+  }
   return {
     id: post.id || '',
     date: post.createdTime ? String(post.createdTime).slice(0, 10) : '',
@@ -387,7 +402,7 @@ export function toActivityRow(post) {
     rewards,
     delivery: summarizeDelivery(rewards),
     rewardCount: rewards.length,
-    commentDriven: isCommentDriven(post.message),
+    commentDriven,
     comments: post.comments ?? 0,
     reactions: post.reactions ?? 0,
     shares: post.shares ?? 0,
