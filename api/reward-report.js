@@ -175,6 +175,23 @@ export default async function handler(req, res) {
       { timeoutMs: 45000 }
     );
     const all = data.map(normalizePost).filter(Boolean);
+
+    // 診斷用:列出掃到的每一則貼文的開頭,用來查「為什麼這則沒被認成活動貼文」。
+    // 2026-11-20 使用者指出有投稿型活動沒被抓到,就是靠這個找出原因的。
+    if (String(req.query?.mode || '') === 'scan') {
+      return res.status(200).json({
+        ok: true, months, scanned: all.length, truncated,
+        posts: all.map((p) => ({
+          id: p.id,
+          date: p.createdTime ? String(p.createdTime).slice(0, 10) : '',
+          hasRewardField: hasRewardField(p.message),
+          comments: p.comments ?? 0,
+          head: String(p.message || '').slice(0, 400),
+          permalink: p.permalink || ''
+        }))
+      });
+    }
+
     const rows = all
       .filter((p) => hasRewardField(p.message))
       .map(toActivityRow)
