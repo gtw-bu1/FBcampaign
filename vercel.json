@@ -8,6 +8,7 @@
     "api/post-to-facebook.js": { "maxDuration": 120 },
     "api/page-insights.js": { "maxDuration": 60 },
     "api/fb-check.js": { "maxDuration": 30 },
-    "api/reward-report.js": { "maxDuration": 120 }
+    "api/reward-report.js": { "maxDuration": 120 },
+    "api/baseline.js": { "maxDuration": 120 }
   }
 }

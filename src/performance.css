@@ -24,3 +24,15 @@
 .forecast-warn{font-size:11px;color:#a5552c;background:#fff3f0;border-radius:7px;padding:9px 11px;margin:7px 0;line-height:1.7}
 .forecast-basis{font-size:10px;color:#7d7266;line-height:1.75;margin:6px 0}
 .forecast-caveat{font-size:10px;color:#9a8c7d;line-height:1.7;margin-top:9px}
+
+/* 一鍵更新基準 */
+.baseline-bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;background:#f6f1e9;border:1px solid #e7ddcd;border-radius:9px;padding:11px 13px;margin:4px 0 7px}
+.baseline-bar strong{font-size:11px;color:#6e5847;display:block}
+.baseline-bar small{font-size:10px;color:#8a7b6c;display:block;margin-top:3px;line-height:1.6}
+.baseline-actions{display:flex;gap:6px;flex-wrap:wrap}
+.baseline-actions .secondary{padding:7px 11px;font-size:11px}
+.baseline-hint{margin:0 0 12px !important;font-size:10px}
+.pending-box{border:1px solid #efcfaf;background:#fff7ed;border-radius:9px;padding:13px;margin:10px 0 16px}
+.pending-box>strong{font-size:11px;color:#a5552c;display:block;margin-bottom:6px}
+.pending-box .generate{margin-top:9px;padding:11px 14px}
+.pending-count{font-size:9px;color:#b5a695;white-space:nowrap;flex:0 0 auto}

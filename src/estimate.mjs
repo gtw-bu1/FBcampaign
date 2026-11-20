@@ -35,16 +35,16 @@ const quant = (a, q) => {
 };
 const half = (d) => String(d).slice(0, 4) + (Number(String(d).slice(5, 7)) <= 6 ? 'H1' : 'H2');
 
-export function periodFactor(fromDate, toDate) {
-  const a = baseline.periodBaseline[half(fromDate)]?.median;
-  const b = baseline.periodBaseline[half(toDate)]?.median;
+export function periodFactor(fromDate, toDate, base = baseline) {
+  const a = base.periodBaseline[half(fromDate)]?.median;
+  const b = base.periodBaseline[half(toDate)]?.median;
   if (!a || !b) return 1;
   return b / a;
 }
 
 // 最新一期的基準,當作「現在」的水準
-export function latestPeriod() {
-  return Object.keys(baseline.periodBaseline).sort().slice(-1)[0];
+export function latestPeriod(base = baseline) {
+  return Object.keys(base.periodBaseline).sort().slice(-1)[0];
 }
 
 export function durationDays(start, end) {
@@ -72,10 +72,10 @@ export function parseQty(piece) {
 }
 
 // 回傳基準表裡最符合的品項;找不到回 null(UI 會請使用者自己選)
-export function matchItem(name, qty) {
+export function matchItem(name, qty, base = baseline) {
   const want = norm(name);
   if (!want) return null;
-  const candidates = baseline.items.filter((i) => {
+  const candidates = base.items.filter((i) => {
     const k = norm(i.item);
     return k && (want.includes(k) || k.includes(want));
   });
@@ -91,7 +91,7 @@ export function itemKey(item) {
 }
 
 // --- 初判 ---
-export function detectDraft(message, { start = '', end = '' } = {}) {
+export function detectDraft(message, { start = '', end = '', base = baseline } = {}) {
   const text = String(message ?? '');
   const lines = extractRewardLines(text);
   const parsed = lines.map((l) => parseRewardLine(l, text, (text.split('\n')[0] || '').trim()));
@@ -101,7 +101,7 @@ export function detectDraft(message, { start = '', end = '' } = {}) {
     for (const piece of splitRewardPieces(p.name)) {
       const { name, qty } = parseQty(piece);
       if (!name || name.length < 2) continue;
-      const matched = matchItem(name, qty);
+      const matched = matchItem(name, qty, base);
       rewards.push({
         raw: piece, name, qty,
         matchedItem: matched ? matched.item : '',
@@ -128,8 +128,8 @@ export function detectDraft(message, { start = '', end = '' } = {}) {
 // --- 選對標群 ---
 export const MIN_SAMPLE = 3;
 
-export function pickComparables(detected, { itemKeys = null } = {}) {
-  const driven = baseline.activities.filter((a) => a.type === '留言互動型');
+export function pickComparables(detected, { itemKeys = null, base = baseline } = {}) {
+  const driven = base.activities.filter((a) => a.type === '留言互動型');
   const keys = itemKeys
     ?? detected.rewards.map((r) => (r.matchedItem ? r.matchedItem + '｜' + r.matchedQty : '')).filter(Boolean);
   const wantNames = keys.map((k) => norm(k.split('｜')[0])).filter(Boolean);
@@ -150,7 +150,7 @@ export function pickComparables(detected, { itemKeys = null } = {}) {
   // 退到同魅力度分級
   const grades = [...new Set(detected.rewards.map((r) => r.grade).filter((g) => g && g !== '樣本不足'))];
   if (grades.length) {
-    const gradeItems = baseline.items.filter((i) => grades.includes(i.grade)).map((i) => norm(i.item));
+    const gradeItems = base.items.filter((i) => grades.includes(i.grade)).map((i) => norm(i.item));
     const sameGrade = driven.filter((a) => gradeItems.some((g) => g && norm(a.rewards).includes(g)));
     const sameGradeAndWay = sameGrade.filter((a) => a.difficulty === detected.difficulty);
     if (sameGradeAndWay.length >= MIN_SAMPLE) {
@@ -173,10 +173,10 @@ export function pickComparables(detected, { itemKeys = null } = {}) {
 }
 
 // --- 主函式 ---
-export function estimate(detected, { publishDate = '', useSeasonFactor = false, itemKeys = null } = {}) {
+export function estimate(detected, { publishDate = '', useSeasonFactor = false, itemKeys = null, base = baseline } = {}) {
   const target = publishDate || detected.start || '';
-  const toPeriod = target ? half(target) : latestPeriod();
-  const { group, tier, basis } = pickComparables(detected, { itemKeys });
+  const toPeriod = target ? half(target) : latestPeriod(base);
+  const { group, tier, basis } = pickComparables(detected, { itemKeys, base });
 
   if (!group.length) {
     return { ok: false, reason: '基準表裡沒有可比的活動,無法預估。' };
@@ -184,7 +184,7 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
 
   // 時間校正:把每則的留言數換算到預計發布的那一期
   const adjusted = group.map((a) => {
-    const f = periodFactor(a.date, target || `${toPeriod.slice(0, 4)}-${toPeriod.endsWith('H1') ? '03' : '09'}-01`);
+    const f = periodFactor(a.date, target || `${toPeriod.slice(0, 4)}-${toPeriod.endsWith('H1') ? '03' : '09'}-01`, base);
     return { ...a, factor: Math.round(f * 100) / 100, adjustedComments: Math.max(0, Math.round(a.comments * f)) };
   });
 
@@ -195,7 +195,7 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
 
   const explain = [
     `對標群:${basis}。`,
-    `時間校正:粉專基礎熱度一直在變(非活動貼文的留言中位數 ${Object.entries(baseline.periodBaseline).sort().map(([k, v]) => k + '=' + v.median).join('、')}),` +
+    `時間校正:粉專基礎熱度一直在變(非活動貼文的留言中位數 ${Object.entries(base.periodBaseline).sort().map(([k, v]) => k + '=' + v.median).join('、')}),` +
       `所以把每則對標活動的留言數換算到 ${toPeriod} 的水準再取中位數。`
   ];
   const warnings = [];
@@ -204,12 +204,12 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
   // 對標群沒有按參與方式篩過時(退層了),群裡多半是別種門檻的活動。
   // 「只要留言」中位數 166、「要附截圖」只有 90——門檻差一道就掉快一半,
   // 不校正的話使用者改了「參與方式」卻看到同一個數字(2026-11-20 實測發現)。
-  const targetWay = baseline.difficulty.find((d) => d.label === detected.difficulty);
+  const targetWay = base.difficulty.find((d) => d.label === detected.difficulty);
   let wayFactor = 1;
   if (!tier.includes('way') && targetWay && targetWay.n >= MIN_SAMPLE) {
     const groupWayMedians = group.map((a) => {
-      const w = baseline.difficulty.find((d) => d.label === a.difficulty);
-      return w && w.n >= MIN_SAMPLE ? w.median : baseline.overallMedian;
+      const w = base.difficulty.find((d) => d.label === a.difficulty);
+      return w && w.n >= MIN_SAMPLE ? w.median : base.overallMedian;
     });
     const groupWayMedian = med(groupWayMedians);
     if (groupWayMedian > 0) {
@@ -220,7 +220,7 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
         high = Math.round(high * wayFactor);
         explain.push(
           `參與方式校正:對標的活動多半是別種門檻,把它們換算成「${detected.difficulty}」的水準(×${wayFactor})。` +
-          `依據是各參與方式的留言中位數——${baseline.difficulty.filter((d) => d.n >= MIN_SAMPLE).map((d) => `${d.label} ${d.median}(${d.n} 則)`).join('、')}。`
+          `依據是各參與方式的留言中位數——${base.difficulty.filter((d) => d.n >= MIN_SAMPLE).map((d) => `${d.label} ${d.median}(${d.n} 則)`).join('、')}。`
         );
       }
     }
@@ -229,7 +229,7 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
   }
 
   const month = Number(String(target).slice(5, 7));
-  const seasonInfo = baseline.monthly.find((m) => m.month === month) || null;
+  const seasonInfo = base.monthly.find((m) => m.month === month) || null;
   if (useSeasonFactor && seasonInfo?.factor) {
     expected = Math.round(expected * seasonInfo.factor);
     low = Math.round(low * seasonInfo.factor);
