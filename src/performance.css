@@ -9,6 +9,9 @@
 .judge-row select{flex:1;min-width:0;font-size:11px;padding:6px}
 .judge-raw{font-size:10px;color:#8a7b6c;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 0 auto}
 .judge-row .icon-btn{padding:2px 5px}
+.add-way{margin:6px 0 10px}
+.add-way input{flex:1;min-width:0;font-size:11px;padding:6px;border:1px solid #e2d6c8;border-radius:6px}
+.add-way .secondary{padding:5px 10px;font-size:11px;white-space:nowrap}
 .performance-card code{font-size:10px;background:#fff3e6;border-radius:4px;padding:1px 5px;margin:0 3px;color:#8b5a38}
 .compare-table-wrap{max-height:340px;overflow:auto;border:1px solid #ece3d7;border-radius:9px}
 .compare-table{width:100%;border-collapse:collapse;font-size:10px;line-height:1.6}

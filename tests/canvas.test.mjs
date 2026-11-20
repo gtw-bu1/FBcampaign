@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {initial,defaultStyle} from '../src/core.mjs';
+import {SAMPLE_ACTIVITY,defaultStyle} from '../src/core.mjs';
 import {renderPoster,renderGeneratedPoster} from '../src/canvas.mjs';
 
 function fakeCanvas(){
@@ -12,7 +12,7 @@ function fakeCanvas(){
 
 test('empty uploads produce a real universal poster without placeholder text or optional CTA',async()=>{
  const {written,canvas}=fakeCanvas();
- await renderPoster(canvas,{...initial,subtitle:'一起收藏小驚喜',cta:''},[],defaultStyle,'1200x1200');
+ await renderPoster(canvas,{...SAMPLE_ACTIVITY,subtitle:'一起收藏小驚喜',cta:''},[],defaultStyle,'1200x1200');
  assert.equal(canvas.width,1200);assert.equal(canvas.height,1200);
  assert.ok(written.includes('一起收藏小驚喜'));
  assert.ok(!written.includes('原廠素材展示區'));
@@ -24,8 +24,8 @@ test('asset name is drawn only when requested',async()=>{
  globalThis.Image=class{width=100;height=100;set src(_value){this.onload();}};
  try{
   const asset=[{url:'test:asset',label:'my-original.png'}];
-  const hidden=fakeCanvas();await renderPoster(hidden.canvas,{...initial,showAssetNames:false},asset,defaultStyle,'1200x628');
-  const shown=fakeCanvas();await renderPoster(shown.canvas,{...initial,showAssetNames:true},asset,defaultStyle,'1200x628');
+  const hidden=fakeCanvas();await renderPoster(hidden.canvas,{...SAMPLE_ACTIVITY,showAssetNames:false},asset,defaultStyle,'1200x628');
+  const shown=fakeCanvas();await renderPoster(shown.canvas,{...SAMPLE_ACTIVITY,showAssetNames:true},asset,defaultStyle,'1200x628');
   assert.equal(hidden.canvas.height,628);
   assert.ok(!hidden.written.includes('my-original.png'));
   assert.ok(shown.written.includes('my-original.png'));

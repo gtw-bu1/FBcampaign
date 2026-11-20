@@ -129,3 +129,14 @@ test('樣本不足的參與方式不硬套係數,改成警告', () => {
   assert.equal(r.wayFactor, 1);
   assert.ok(r.warnings.some((w) => w.includes('要錄影片')));
 });
+
+test('使用者自己新增的參與難度與發放規模:照估但要講清楚沒有歷史樣本', () => {
+  const d = detectDraft('活動獎勵:活動解碼器 ×3\n留言參加', { start: '2026-12-01', end: '2026-12-07' });
+  const r = estimate({ ...d, difficulty: '要直播開箱', delivery: '留言+分享就送' }, { publishDate: '2026-12-01' });
+  assert.ok(r.ok, '還是要給得出數字');
+  assert.equal(r.wayFactor, 1, '沒有樣本就不要亂套係數');
+  assert.ok(r.warnings.some((w) => w.includes('要直播開箱') && w.includes('沒有樣本')),
+    `要警告新增的難度沒有樣本:${JSON.stringify(r.warnings)}`);
+  assert.ok(r.warnings.some((w) => w.includes('留言+分享就送')),
+    `要警告新增的發放規模沒有樣本:${JSON.stringify(r.warnings)}`);
+});

@@ -311,6 +311,11 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
     }
   } else if (targetWay && targetWay.n < MIN_SAMPLE) {
     warnings.push(`「${detected.difficulty}」在歷史上只有 ${targetWay.n} 則,沒辦法用它校正,預估沒有把這個門檻的影響算進去。`);
+  } else if (!targetWay) {
+    // 使用者自己新增的參與方式(未來一定會有新玩法),基準表裡查不到。
+    // 這時只能用對標群原本的水準,必須講清楚,不能讓她以為數字已經把新門檻算進去了。
+    warnings.push(`參與難度「${detected.difficulty}」過去的活動沒用過(應該是你新增的),基準表裡沒有樣本可以校正,`
+      + '這個數字只反映對標活動原本的門檻,請自己斟酌加減。');
   }
 
   const month = Number(String(target).slice(5, 7));
@@ -330,6 +335,9 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
   if (tier === 'all' || tier === 'way') warnings.push('沒有用過同樣獎勵的歷史活動,預估是靠參與方式推的,誤差會比較大。');
   if (detected.rewards.some((r) => !r.matchedItem)) warnings.push('有獎勵對不到基準表裡的品項,建議在上面手動指定,預估才會準。');
   if (detected.delivery === '未標示') warnings.push('文案裡看不出是留言就送還是留言就抽,建議手動指定。');
+  else if (!base.delivery.some((d) => d.label === detected.delivery)) {
+    warnings.push(`發放規模「${detected.delivery}」過去的活動沒用過(應該是你新增的),沒有歷史表現可以參考,預估沒有把它算進去。`);
+  }
 
   return {
     ok: true,

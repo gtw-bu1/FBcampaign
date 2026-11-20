@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import handler, { composeCopy, validateRequest } from '../api/generate.js';
-import { initial, defaultStyle } from '../src/core.mjs';
+import { SAMPLE_ACTIVITY, defaultStyle } from '../src/core.mjs';
 
-const body = { activity: initial, style: defaultStyle, size: '1200x1200' };
+const body = { activity: SAMPLE_ACTIVITY, style: defaultStyle, size: '1200x1200' };
 function response() {
   return { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(value) { this.body = value; return this; } };
 }
 
 test('request accepts supported content and rejects unknown size', () => {
   assert.equal(validateRequest(body), '');
-  assert.equal(validateRequest({...body,activity:{...initial,cta:''}}),'');
+  assert.equal(validateRequest({...body,activity:{...SAMPLE_ACTIVITY,cta:''}}),'');
   assert.match(validateRequest({ ...body, size: '4000x4000' }), /尺寸/);
   assert.equal(validateRequest({...body,posterMode:'full-ai',referencePoster:'data:image/jpeg;base64,AQID'}),'');
   assert.match(validateRequest({...body,posterMode:'full-ai'}),/參考圖/);
@@ -18,13 +18,13 @@ test('request accepts supported content and rejects unknown size', () => {
 });
 
 test('AI hook cannot replace exact activity facts', () => {
-  const copy = composeCopy(initial, {...defaultStyle,selectedHashtags:['#限時好禮'],hashtags:'#自訂活動'}, '一起展開新的冒險！');
-  for (const key of ['time', 'rewards', 'conditions', 'cta']) assert.ok(copy.includes(initial[key]));
+  const copy = composeCopy(SAMPLE_ACTIVITY, {...defaultStyle,selectedHashtags:['#限時好禮'],hashtags:'#自訂活動'}, '一起展開新的冒險！');
+  for (const key of ['time', 'rewards', 'conditions', 'cta']) assert.ok(copy.includes(SAMPLE_ACTIVITY[key]));
   assert.ok(copy.endsWith('#CSO絕對武力 #限時好禮 #自訂活動'));
 });
 
 test('public copy has a fixed title, readable opening, polished participation and closing',()=>{
-  const copy=composeCopy(initial,defaultStyle,'秋天的驚喜來了！快跟朋友一起看看吧！','每天完成任務，再累積登入 7 天，就能領取好禮唷！','快約朋友一起展開秋日冒險吧！');
+  const copy=composeCopy(SAMPLE_ACTIVITY,defaultStyle,'秋天的驚喜來了！快跟朋友一起看看吧！','每天完成任務，再累積登入 7 天，就能領取好禮唷！','快約朋友一起展開秋日冒險吧！');
   assert.match(copy,/^【秋日冒險・好禮集結】限定冒險禮盒送給你！\n秋天的驚喜來了！\n快跟朋友一起看看吧！ ✨/u);
   assert.match(copy,/🌟 參加方式\n每天完成任務，再累積登入 7 天/);
   assert.doesNotMatch(copy,/🌟 參加方式\n活動期間完成每日任務，累積登入/);

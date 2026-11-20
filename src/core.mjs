@@ -1,4 +1,9 @@
-export const initial = {name:'秋日冒險・好禮集結',time:'2026/10/15 – 2026/10/31',rewards:'限定冒險禮盒 × 1\n星光寶石 × 100',conditions:'活動期間完成每日任務，累積登入 7 天即可領取。',cta:'立即參加',headline:'秋日冒險\n好禮集結',subtitle:'',showAssetNames:false};
+// 2026-11-20 使用者:「活動獎勵的部分加了『活動期間完成每日任務/累積登入 7 天即可領取』而且還寫死,
+// 這樣不對,畢竟每一檔活動都不一樣」。所以活動欄位一律留空,只靠 placeholder 提示怎麼填,
+// 不預填任何活動內容——預填的示範值會被當成真的獎勵拿去產文案與預估。
+export const initial = {name:'',time:'',rewards:'',conditions:'',cta:'立即參加',headline:'',subtitle:'',showAssetNames:false};
+// 只給測試與示範用,不會出現在使用者的畫面上。
+export const SAMPLE_ACTIVITY = {name:'秋日冒險・好禮集結',time:'2026/10/15 – 2026/10/31',rewards:'限定冒險禮盒 × 1\n星光寶石 × 100',conditions:'活動期間完成每日任務，累積登入 7 天即可領取。',cta:'立即參加',headline:'秋日冒險\n好禮集結',subtitle:'',showAssetNames:false};
 export const ALWAYS_HASHTAG='#CSO絕對武力';
 export const OPTIONAL_HASHTAGS=['#全新角色','#王牌武器','#黑市','#史詩武器','#限時好禮','#免費序號','#通通有獎','#留言就抽'];
 export const VISUAL_MOODS=['夢幻光影','節慶紙雕','未來科技','清新插畫','高級質感','霓虹電玩','星光宇宙','暖色手繪'];

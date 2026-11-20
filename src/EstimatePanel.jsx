@@ -20,6 +20,10 @@ import './performance.css';
 // Vercel 的檔案系統唯讀,存不回專案;這個工具是單人用的,存瀏覽器最簡單也夠用。
 const BASE_KEY = 'fb_campaign_baseline_v1';
 const ALIAS_KEY = 'fb_campaign_aliases_v1';
+// 2026-11-20 使用者:「規模跟難度希望會有新增(未來可能有新的方式)」。
+// 新增的選項存瀏覽器,下次打開還在。
+const WAYS_KEY = 'fb_campaign_custom_ways_v1';
+const ADD_SENTINEL = '__add__';
 
 function readStored(key) {
   try {
@@ -61,6 +65,50 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
   const [pendingPick, setPendingPick] = useState({});
   const [updating, setUpdating] = useState(false);
   const [accessCode, setAccessCode] = useState('');
+
+  // 使用者自己新增的規模／難度選項
+  const [custom, setCustom] = useState(() => {
+    const s = readStored(WAYS_KEY);
+    return { delivery: s?.delivery || [], difficulty: s?.difficulty || [] };
+  });
+  const [adding, setAdding] = useState('');   // 'delivery' | 'difficulty' | ''
+  const [newWay, setNewWay] = useState('');
+
+  const deliveryOptions = useMemo(
+    () => [...DELIVERY_LIST, ...custom.delivery.filter((x) => !DELIVERY_LIST.includes(x))],
+    [custom.delivery]);
+  const difficultyOptions = useMemo(
+    () => [...DIFFICULTY_LIST, ...custom.difficulty.filter((x) => !DIFFICULTY_LIST.includes(x))],
+    [custom.difficulty]);
+
+  function commitNewWay() {
+    const kind = adding;
+    const value = newWay.trim().slice(0, 20);
+    if (!kind) return;
+    if (!value) { setAdding(''); setNewWay(''); return; }
+    const builtin = kind === 'delivery' ? DELIVERY_LIST : DIFFICULTY_LIST;
+    const next = { ...custom };
+    if (!builtin.includes(value) && !next[kind].includes(value)) {
+      next[kind] = [...next[kind], value];
+      setCustom(next);
+      writeStored(WAYS_KEY, next);
+    }
+    setOver((cur) => ({ ...cur, [kind]: value }));
+    setAdding(''); setNewWay('');
+  }
+
+  function removeWay(kind, value) {
+    const next = { ...custom, [kind]: custom[kind].filter((x) => x !== value) };
+    setCustom(next);
+    writeStored(WAYS_KEY, next);
+    setOver((cur) => (cur[kind] === value ? { ...cur, [kind]: undefined } : cur));
+  }
+
+  const pickWay = (kind) => (event) => {
+    const value = event.target.value;
+    if (value === ADD_SENTINEL) { setAdding(kind); setNewWay(''); return; }
+    set(kind, value);
+  };
 
   const ITEM_OPTIONS = useMemo(() => itemOptions(base), [base]);
   const isUpdated = base !== BASELINE && base.generatedAt !== BASELINE.generatedAt;
@@ -272,16 +320,41 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
           <input type="date" value={view.end} onChange={(e) => set('end', e.target.value)} />
         </label>
         <label className="field">發放規模（抽／送）
-          <select value={view.delivery} onChange={(e) => set('delivery', e.target.value)}>
-            {DELIVERY_LIST.map((d) => <option key={d}>{d}</option>)}
+          <select value={view.delivery} onChange={pickWay('delivery')}>
+            {deliveryOptions.map((d) => <option key={d}>{d}</option>)}
+            <option value={ADD_SENTINEL}>＋ 新增一種…</option>
           </select>
         </label>
         <label className="field">參與難度
-          <select value={view.difficulty} onChange={(e) => set('difficulty', e.target.value)}>
-            {DIFFICULTY_LIST.map((d) => <option key={d}>{d}</option>)}
+          <select value={view.difficulty} onChange={pickWay('difficulty')}>
+            {difficultyOptions.map((d) => <option key={d}>{d}</option>)}
+            <option value={ADD_SENTINEL}>＋ 新增一種…</option>
           </select>
         </label>
       </div>
+      {adding && (
+        <div className="judge-row add-way">
+          <span className="judge-raw">新增{adding === 'delivery' ? '發放規模' : '參與難度'}</span>
+          <input autoFocus maxLength={20} value={newWay}
+            placeholder={adding === 'delivery' ? '例如：留言+分享就送' : '例如：要錄影片投稿'}
+            onChange={(e) => setNewWay(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') commitNewWay(); if (e.key === 'Escape') { setAdding(''); setNewWay(''); } }} />
+          <button className="secondary" onClick={commitNewWay}>加入</button>
+          <button className="icon-btn" aria-label="取消新增" onClick={() => { setAdding(''); setNewWay(''); }}>×</button>
+        </div>
+      )}
+      {(custom.delivery.length > 0 || custom.difficulty.length > 0) && (
+        <p className="muted">
+          你新增的選項（存在這台瀏覽器，會一直留著）:
+          {[...custom.delivery.map((v) => ['delivery', v]), ...custom.difficulty.map((v) => ['difficulty', v])]
+            .map(([kind, v]) => (
+              <button className="link-btn" key={kind + v} onClick={() => removeWay(kind, v)}>
+                {v} ×
+              </button>
+            ))}
+          　（按一下移除）
+        </p>
+      )}
       <p className="performance-duration">
         檔期長度:{duration === null ? '填了起迄日期才算得出來' : `${duration} 天（含頭尾）`}
         {(auto.dateSuspicious || (duration !== null && duration > 120))
