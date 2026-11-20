@@ -108,3 +108,24 @@ test('使用者手動改品項後,對標群要跟著換', () => {
   assert.notEqual(manual.basis, auto.basis);
   assert.ok(manual.expected > 0);
 });
+
+test('改參與方式一定要影響預估(門檻越高留言越少)', () => {
+  // 2026-11-20 實測抓到的問題:同方式樣本不足時退層,結果改了參與方式數字卻沒變
+  const base = '活動獎勵:活動解碼器 ×3\n在貼文下方留言';
+  const easy = detectDraft(base, { start: '2026-12-01', end: '2026-12-14' });
+  const hard = { ...easy, difficulty: '要附截圖' };
+  const a = estimate(easy, { publishDate: '2026-12-01' });
+  const b = estimate(hard, { publishDate: '2026-12-01' });
+  assert.equal(easy.difficulty, '只要留言');
+  assert.ok(b.expected < a.expected,
+    `要附截圖(${b.expected})應該低於只要留言(${a.expected})`);
+  assert.ok(b.wayFactor < 1, '要有校正係數');
+  assert.ok(b.explain.some((x) => x.includes('參與方式校正')), '要說明做了校正');
+});
+
+test('樣本不足的參與方式不硬套係數,改成警告', () => {
+  const d = detectDraft('活動獎勵:活動解碼器 ×3\n留言參加', { start: '2026-12-01', end: '2026-12-07' });
+  const r = estimate({ ...d, difficulty: '要錄影片' }, { publishDate: '2026-12-01' });
+  assert.equal(r.wayFactor, 1);
+  assert.ok(r.warnings.some((w) => w.includes('要錄影片')));
+});

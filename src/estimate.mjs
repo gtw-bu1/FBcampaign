@@ -200,6 +200,34 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
   ];
   const warnings = [];
 
+  // --- 參與方式校正 ---
+  // 對標群沒有按參與方式篩過時(退層了),群裡多半是別種門檻的活動。
+  // 「只要留言」中位數 166、「要附截圖」只有 90——門檻差一道就掉快一半,
+  // 不校正的話使用者改了「參與方式」卻看到同一個數字(2026-11-20 實測發現)。
+  const targetWay = baseline.difficulty.find((d) => d.label === detected.difficulty);
+  let wayFactor = 1;
+  if (!tier.includes('way') && targetWay && targetWay.n >= MIN_SAMPLE) {
+    const groupWayMedians = group.map((a) => {
+      const w = baseline.difficulty.find((d) => d.label === a.difficulty);
+      return w && w.n >= MIN_SAMPLE ? w.median : baseline.overallMedian;
+    });
+    const groupWayMedian = med(groupWayMedians);
+    if (groupWayMedian > 0) {
+      wayFactor = Math.round((targetWay.median / groupWayMedian) * 100) / 100;
+      if (wayFactor !== 1) {
+        expected = Math.round(expected * wayFactor);
+        low = Math.round(low * wayFactor);
+        high = Math.round(high * wayFactor);
+        explain.push(
+          `參與方式校正:對標的活動多半是別種門檻,把它們換算成「${detected.difficulty}」的水準(×${wayFactor})。` +
+          `依據是各參與方式的留言中位數——${baseline.difficulty.filter((d) => d.n >= MIN_SAMPLE).map((d) => `${d.label} ${d.median}(${d.n} 則)`).join('、')}。`
+        );
+      }
+    }
+  } else if (targetWay && targetWay.n < MIN_SAMPLE) {
+    warnings.push(`「${detected.difficulty}」在歷史上只有 ${targetWay.n} 則,沒辦法用它校正,預估沒有把這個門檻的影響算進去。`);
+  }
+
   const month = Number(String(target).slice(5, 7));
   const seasonInfo = baseline.monthly.find((m) => m.month === month) || null;
   if (useSeasonFactor && seasonInfo?.factor) {
@@ -223,6 +251,7 @@ export function estimate(detected, { publishDate = '', useSeasonFactor = false, 
     expected, low, high,
     sampleSize: group.length,
     tier, basis,
+    wayFactor,
     period: toPeriod,
     confidence: group.length >= 8 ? 'high' : group.length >= MIN_SAMPLE ? 'medium' : 'low',
     season: seasonInfo,
