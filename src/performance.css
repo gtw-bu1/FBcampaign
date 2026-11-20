@@ -1,3 +1,26 @@
 .performance-card .section-title{margin-bottom:11px}.performance-card .muted{margin:8px 0 16px}.performance-subtitle{font-size:12px;font-weight:700;color:#6f523e;margin:18px 0 9px}.performance-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px}.performance-grid .field{min-width:0}.performance-grid input,.performance-grid select,.performance-scale select{display:block;width:100%;margin-top:8px}.performance-scale select{max-width:180px}.performance-estimate{padding:13px 15px;margin:8px 0 5px}.performance-result{background:#fff7ed;border:1px solid #efcfaf;border-radius:10px;padding:14px;margin:12px 0;font-size:11px;color:#625344;line-height:1.7}.performance-result p{margin:5px 0}.performance-result ul{padding-left:18px;margin:7px 0 0}.performance-range{font-size:22px;color:#b65c32;font-weight:800}.performance-history{margin-top:15px}.performance-history summary span{font-size:11px}.performance-actions{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 18px}.performance-actions .button{display:inline-block}.performance-add{width:100%;margin:3px 0 12px}.performance-message{font-size:11px;color:#a5552c;line-height:1.6}.performance-records{max-height:240px;overflow:auto;border-top:1px solid #eee}.performance-records>div{display:flex;align-items:center;justify-content:space-between;gap:8px;border-bottom:1px solid #eee;padding:9px 0}.performance-records>div>span{min-width:0}.performance-records strong{display:block;font-size:11px}.performance-records small{display:block;color:#9a8c7d;font-size:10px;line-height:1.6;margin-top:3px}.performance-records select{display:block;font-size:10px;padding:5px;margin-top:5px;max-width:210px}.performance-analysis{border:1px solid #ece3d7;background:#faf8f4;border-radius:9px;padding:12px;margin-top:15px;font-size:11px}.performance-analysis p{margin:6px 0}.performance-analysis strong{color:#6e5847}@media(max-width:400px){.performance-grid{grid-template-columns:1fr}}
 .performance-tab{padding:24px 26px 30px;background:#fbfaf7;min-height:390px}.performance-tab.hidden{display:none}.performance-card.embedded{border:0;box-shadow:none;background:transparent;padding:0;margin:0}.preview-column.performance-active{position:static}@media(max-width:700px){.performance-tab{padding:20px 18px}}
 .performance-duration{background:#fff3e6;border:1px solid #f0dcc7;border-radius:7px;padding:9px 11px;color:#8b5a38;font-size:11px;margin:4px 0 15px}.performance-guide{margin:7px 0 18px}.performance-guide-tables{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:13px}.performance-guide-tables strong{font-size:11px;color:#715849}.performance-guide table{width:100%;border-collapse:collapse;margin-top:6px;font-size:10px;line-height:1.5}.performance-guide th,.performance-guide td{border-bottom:1px solid #eee5db;padding:7px 5px;text-align:left;vertical-align:top}.performance-guide th{min-width:105px;color:#8c5b3e;font-weight:700}.performance-guide td{color:#71695f}.performance-record-actions{display:flex;align-items:center;gap:5px}.performance-record-actions .secondary{padding:5px 7px}.performance-record-actions .icon-btn{padding:2px 4px}@media(max-width:750px){.performance-guide-tables{grid-template-columns:1fr}}
+
+/* 2026-11-20 新預估面板:初判可編輯 + 對標活動表 */
+.judge-rewards{border:1px solid #ece3d7;background:#faf8f4;border-radius:9px;padding:12px;margin:4px 0 14px}
+.judge-rewards>strong{font-size:11px;color:#6e5847;display:block;margin-bottom:8px}
+.judge-row{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.judge-row select{flex:1;min-width:0;font-size:11px;padding:6px}
+.judge-raw{font-size:10px;color:#8a7b6c;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 0 auto}
+.judge-row .icon-btn{padding:2px 5px}
+.performance-card code{font-size:10px;background:#fff3e6;border-radius:4px;padding:1px 5px;margin:0 3px;color:#8b5a38}
+.compare-table-wrap{max-height:340px;overflow:auto;border:1px solid #ece3d7;border-radius:9px}
+.compare-table{width:100%;border-collapse:collapse;font-size:10px;line-height:1.6}
+.compare-table th{position:sticky;top:0;background:#f6f1e9;text-align:left;padding:7px 6px;color:#7b8674;font-weight:400;white-space:nowrap}
+.compare-table td{padding:8px 6px;border-bottom:1px solid #f3efe8;vertical-align:top}
+.compare-table td.d{white-space:nowrap;color:#8a7b6c}
+.compare-table td.t{font-weight:700;min-width:120px}
+.compare-table td.rw{min-width:130px;color:#6b6257}
+.compare-table td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.compare-table td.hi{font-weight:800;color:#b65c32}
+.compare-table td.hi small{display:block;font-weight:400;color:#b5a695;font-size:9px}
+.compare-table td.lk a{color:#7b8674;font-size:9px}
+.forecast-warn{font-size:11px;color:#a5552c;background:#fff3f0;border-radius:7px;padding:9px 11px;margin:7px 0;line-height:1.7}
+.forecast-basis{font-size:10px;color:#7d7266;line-height:1.75;margin:6px 0}
+.forecast-caveat{font-size:10px;color:#9a8c7d;line-height:1.7;margin-top:9px}
