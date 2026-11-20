@@ -44,6 +44,21 @@ const norm = (s) => String(s ?? '').replace(/\s/g, '')
 // 這些是通用詞,不可以當對照的來源(會把所有東西都歸成同一類)
 const TOO_GENERIC = /^(獎勵|好禮|贈品|禮物|物資|獎品)$/;
 
+// 抓壞的獎勵名稱,不要拿去煩營運分類(2026-11-20 線上實測,待分類清單裡混進這些)
+const NOT_A_REWARD = /條件|維護後|維護前|加入官方|官方帳號|活動時間|有上線|抽出\s*\d|達標|以下|以上|留言數|人以下|名以上/;
+
+// 性質不同、不該混進基準的活動(營運判斷後排除)。
+// 2026-11-20:「末日戰力集結｜全服解鎖獎勵」是依**全服留言總數**解鎖階梯獎勵,
+// 跟「個人留言就送/就抽」不是同一種機制,留言數不可比。
+export const EXCLUDED_ACTIVITIES = [
+  { date: '2026-07-22', titleHas: '末日戰力集結' }
+];
+
+export function isExcludedActivity({ date = '', title = '' } = {}) {
+  return EXCLUDED_ACTIVITIES.some((x) =>
+    (!x.date || x.date === date) && (!x.titleHas || String(title).includes(x.titleHas)));
+}
+
 export function normalizeItemName(name, aliases = BUILTIN_ALIASES) {
   const raw = String(name ?? '').trim();
   if (!raw || TOO_GENERIC.test(raw)) return raw;
@@ -65,6 +80,9 @@ const STABLE_ITEMS = /解碼器|Pass|禮券|選擇箱|寶箱|齒輪|樂豆|點�
 export function needsCategory(name, aliases = BUILTIN_ALIASES) {
   const raw = String(name ?? '').trim();
   if (!raw || raw.length < 2 || TOO_GENERIC.test(raw)) return false;
+  // 太長的通常是整句文案被當成獎勵名,不是真的道具
+  if (raw.length > 18) return false;
+  if (NOT_A_REWARD.test(raw)) return false;
   if (STABLE_ITEMS.test(raw)) return false;
   if (REWARD_CATEGORIES.includes(raw)) return false;
   return normalizeItemName(raw, aliases) === raw;

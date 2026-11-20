@@ -1,7 +1,7 @@
 // 從「粉專貼文」算出預估用的基準表。
 // 前端(一鍵更新)與產生腳本共用同一份邏輯,免得兩邊算法漂移。
 import { toActivityRow, isCampaignPost } from './activity-extract.mjs';
-import { normalizeItemName, needsCategory, BUILTIN_ALIASES } from './reward-aliases.mjs';
+import { normalizeItemName, needsCategory, BUILTIN_ALIASES, isExcludedActivity } from './reward-aliases.mjs';
 
 export const med = (a) => {
   const s = a.filter((x) => Number.isFinite(x)).slice().sort((x, y) => x - y);
@@ -47,9 +47,12 @@ export function buildBaseline(posts = [], { aliases = BUILTIN_ALIASES, generated
   const periodBaseline = {};
   for (const [k, v] of Object.entries(baseGroups)) periodBaseline[k] = { median: Math.max(1, med(v)), n: v.length };
 
-  // 活動貼文
-  const rows = posts.filter((p) => isCampaignPost(p.message)).map(toActivityRow)
+  // 活動貼文。排除性質不同的(例如依全服留言總數解鎖的階梯獎勵,留言數不可比)
+  const allRows = posts.filter((p) => isCampaignPost(p.message)).map(toActivityRow)
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const rows = allRows.filter((r) => !isExcludedActivity({ date: r.date, title: r.title }));
+  const excluded = allRows.filter((r) => isExcludedActivity({ date: r.date, title: r.title }))
+    .map((r) => ({ date: r.date, title: r.title }));
 
   const activities = rows.map((r) => ({
     date: r.date,
@@ -149,6 +152,7 @@ export function buildBaseline(posts = [], { aliases = BUILTIN_ALIASES, generated
     delivery: groupBy(driven, (a) => a.delivery),
     items,
     activities,
+    excluded,
     // 需要營運指定品類的新道具
     unclassified: [...pending.values()]
       .map((p) => ({ name: p.name, count: p.dates.length, dates: p.dates.slice().sort() }))

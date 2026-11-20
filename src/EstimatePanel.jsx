@@ -84,7 +84,11 @@ export default function EstimatePanel({ activity = {}, copy = '', embedded = fal
       setPendingPick({});
       const pend = next.unclassified?.length || 0;
       setNote(`基準已更新:${next.activities.length} 則活動、${next.items.length} 種獎勵（掃過 ${next.scanned} 則貼文）。`
-        + (pend ? `有 ${pend} 個新獎勵還沒分類,請在下面指定品類後再更新一次。` : '所有獎勵都分類好了。'));
+        + (next.excluded?.length ? `已排除 ${next.excluded.length} 則性質不同的活動。` : '')
+        + (pend
+          ? `還有 ${pend} 個獎勵沒分類——在指定完之前,同一款道具的不同季名稱會被當成不同獎勵,`
+            + `樣本散掉、預估會比內建那份不準。請在下面指定品類,按一下就會重算。`
+          : '所有獎勵都分類好了。'));
     } catch (error) {
       setNote(error?.message || '更新失敗,請重試。');
     } finally {
