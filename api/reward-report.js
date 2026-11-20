@@ -13,7 +13,7 @@
 import { gate } from './_auth.mjs';
 import { resolvePageToken } from './_pagetoken.mjs';
 import { normalizePost, graphGetAll } from './page-insights.js';
-import { hasRewardField, toActivityRow, activityCsv } from '../src/activity-extract.mjs';
+import { hasRewardField, isCampaignPost, toActivityRow, activityCsv } from '../src/activity-extract.mjs';
 
 const POST_FIELDS = [
   'id', 'message', 'created_time', 'permalink_url',
@@ -59,13 +59,14 @@ function renderHtml({ rows, months, scanned, truncated, csvUrl }) {
     <td class="dv">${r.rewards.length
       ? r.rewards.map((x) => `<div class="${x.delivery === '留言就抽' ? 'draw' : x.delivery === '留言就送' ? 'give' : 'dim'}">${escapeHtml(x.delivery)}</div>`).join('')
       : '<span class="dim">—</span>'}</td>
+    <td class="d">${escapeHtml(r.difficulty || '')}</td>
     <td class="n hi">${r.comments}</td>
     <td class="n">${r.reactions}</td>
     <td class="n">${r.shares}</td>
     <td class="lk">${r.permalink ? `<a href="${escapeHtml(r.permalink)}" target="_blank" rel="noreferrer">看貼文</a>` : ''}</td>
   </tr>`;
 
-  const table = (list) => `<table><thead><tr><th>日期</th><th>活動標題（第一行）</th><th>獎勵名稱</th><th>發放方式</th><th>留言</th><th>心情</th><th>分享</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>`;
+  const table = (list) => `<table><thead><tr><th>日期</th><th>活動標題（第一行）</th><th>獎勵名稱</th><th>發放方式</th><th>活動難度</th><th>留言</th><th>心情</th><th>分享</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>`;
 
   const driven = rows.filter((r) => r.commentDriven);
   const notDriven = rows.filter((r) => !r.commentDriven);
@@ -107,7 +108,7 @@ a.dl{display:inline-block;background:#38372f;color:#fff;border-radius:7px;paddin
 .why{font-size:11px;color:#a3998b;line-height:1.8;margin:6px 0 0}
 </style></head><body><div class="wrap">
 <h1>活動貼文 × 留言數</h1>
-<p class="sub">最近 ${months} 個月共掃過 ${scanned} 則貼文,其中 <strong>${rows.length} 則</strong>文案含「活動獎勵」${truncated ? '(已達分頁上限,可能還有更舊的貼文沒抓到)' : ''}。
+<p class="sub">最近 ${months} 個月共掃過 ${scanned} 則貼文,其中 <strong>${rows.length} 則</strong>是活動貼文(有要求互動＋有獎勵物品)${truncated ? '(已達分頁上限,可能還有更舊的貼文沒抓到)' : ''}。
 留言互動型 ${driven.length} 則、非留言型 ${notDriven.length} 則,各自依發布日期由新到舊排列。</p>
 <div class="note"><strong>「留言數」不等於活動參與人數</strong>——Facebook API 不提供參與人數(那在遊戲後台)。
 對「留言參加」型的活動,留言數是合理的代理指標。<br>
@@ -193,7 +194,7 @@ export default async function handler(req, res) {
     }
 
     const rows = all
-      .filter((p) => hasRewardField(p.message))
+      .filter((p) => isCampaignPost(p.message))
       .map(toActivityRow)
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 

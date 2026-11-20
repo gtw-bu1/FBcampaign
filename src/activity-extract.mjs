@@ -80,6 +80,58 @@ export function hasRewardField(message) {
   return typeof message === 'string' && message.includes(REWARD_FIELD);
 }
 
+// --- 2026-11-20 使用者指出漏抓很多:靠欄位名認活動貼文行不通 ---
+//
+// 她舉的例子:「【18周年慶系列活動】寫下回憶送服裝角色解碼器 ×3」用的是
+// 「🎁 參加獎勵:」而不是「活動獎勵:」。查了全部 321 則貼文,
+// **寫成「活動獎勵:」的只有 31 則**,其他各種寫法:
+//   「獎勵:」6 則、「皆可獲得獎勵:」2 則、「投票獎勵:」「參加獎勵:」「獲得以下好禮:」各 1 則。
+// 更麻煩的是**很多根本沒有欄位名**,獎勵直接寫在句子裡:
+//   「🎁留言就送:超A解碼器*7＋末日解碼器*5」(留言 1731)
+//   「🎁留言就抽:[末日] 震天龍砲（永久）*1」(留言 794)
+//   「就抽兩位幸運兒分別獲得:🎁夜之魔女露娜(永久)*1」(留言 350)
+// 這批全是高互動的留言活動,漏掉它們等於整份分析都不可信。
+//
+// 改成看語意:**要求玩家互動 + 給得出獎勵物品**就是活動貼文。
+const INTERACTION = /留言|截圖|投稿|標記朋友|標記好友|分享你|分享並|分享完成|問卷|表單|投票|競猜|命名|錄下|錄製|張貼/;
+const REWARD_HINT = /獎勵|好禮|贈品|禮物|物資|送你|送給|就送|就抽|留言抽|留言送|抽出|抽獎|帶走|獲得|抽\s*\d/;
+// 維護公告、純販售宣傳要排除
+const NOT_CAMPAIGN = /伺服器.{0,8}維護|臨時維護|維護公告|停機/;
+
+export function isCampaignPost(message) {
+  const t = normalizeNumbers(message || '');
+  if (!t.trim()) return false;
+  if (NOT_CAMPAIGN.test(t) && !INTERACTION.test(t)) return false;
+  if (!INTERACTION.test(t)) return false;
+  if (!REWARD_HINT.test(t)) return false;
+  return REWARD_WORDS.test(t) || QTY_MARK.test(t);
+}
+
+// --- 活動難度:使用者要的「留言活動/要投稿/附上圖片/附上影片」 ---
+//
+// 由難到易判,先中的優先。附影片最難、純留言最容易。
+export const DIFFICULTY = {
+  VIDEO: '要錄影片',
+  IMAGE: '要附截圖',
+  POST: '要投稿創作',
+  FORM: '填問卷表單',
+  VOTE: '投票/按表情',
+  COMMENT: '只要留言',
+  NONE: '不用互動（直接發放）'
+};
+
+export function classifyDifficulty(message) {
+  const t = String(message ?? '');
+  if (!INTERACTION.test(t)) return DIFFICULTY.NONE;
+  if (/錄下|錄製|錄影|影片|短片/.test(t)) return DIFFICULTY.VIDEO;
+  if (/截圖|附上圖|附圖|遊戲畫面|照片|梗圖|上傳.{0,6}圖/.test(t)) return DIFFICULTY.IMAGE;
+  if (/投稿|創作|作品|繪圖|手繪|同人/.test(t)) return DIFFICULTY.POST;
+  if (/問卷|表單/.test(t)) return DIFFICULTY.FORM;
+  if (/投票|按下對應表情|按表情|用表情/.test(t)) return DIFFICULTY.VOTE;
+  if (/留言|張貼/.test(t)) return DIFFICULTY.COMMENT;
+  return DIFFICULTY.NONE;
+}
+
 // 第一行當標題。前面可能有空行,跳過;長度留到 120 字(標題常有 emoji 與副標)
 export function extractTitle(message, maxLen = 120) {
   const text = typeof message === 'string' ? message : '';
@@ -92,16 +144,46 @@ export function extractTitle(message, maxLen = 120) {
 
 // 「活動獎勵」之後的整段內容(多行),到下一個欄位名為止。
 // 回傳陣列,一個元素一行——這樣使用者就看得出「有幾種獎勵發放方式」。
-export function extractRewardLines(message, maxLines = 8) {
-  const text = typeof message === 'string' ? message : '';
-  const idx = text.indexOf(REWARD_FIELD);
-  if (idx < 0) return [];
+// 獎勵區塊的引導詞,按優先序試。「獎勵」最泛,放最後。
+// 來自 2026-11-20 對 321 則真實貼文的統計(見 isCampaignPost 的註解)。
+//
+// **只有「欄位格式」才算引導詞**:後面要緊跟冒號或換行。
+// 不然「【末日戰力集結｜全服解鎖獎勵】」的「獎勵」會命中標題,
+// 從標題後面開始抓,結果抓到活動說明句(2026-11-20 實測)。
+const REWARD_FIELDS = [
+  '活動獎勵', '參加獎勵', '參與獎勵', '獎勵內容', '活動好禮', '參加好禮',
+  '得獎獎勵', '投票獎勵', '皆可獲得獎勵', '獲得以下好禮', '獎勵'
+];
 
-  // 從「活動獎勵」那一行開始切。同一行冒號後面若有內容,那也算第一行獎勵。
-  const after = text.slice(idx + REWARD_FIELD.length);
-  const lines = after.split('\n');
+function fieldAt(text, field) {
+  let from = 0;
+  for (;;) {
+    const idx = text.indexOf(field, from);
+    if (idx < 0) return -1;
+    const after = text.slice(idx + field.length);
+    // 後面可以有空白,接著必須是冒號或換行,才是欄位名
+    if (/^[\s]*[:：\n]/.test(after)) return idx;
+    from = idx + field.length;
+  }
+}
+
+// 沒有任何引導詞時,掃全文找出像獎勵的行。
+// 「🎁留言就送:超A解碼器*7＋末日解碼器*5」這種寫法沒有欄位名,只能這樣抓。
+function isRewardLine(line) {
+  if (isNoiseLine(line)) return false;
+  const t = normalizeNumbers(line);
+  // 以冒號結尾的是引導句不是獎勵本身(「就抽兩位幸運兒分別獲得:」)
+  if (/[:：]\s*$/.test(t)) return false;
+  // 很長又沒有數量標記的是說明句
+  // (「現在就秀出你的武器戰友「永耀烈陽・熾」…解鎖全服獎勵!」2026-11-20 實測)
+  if (t.length > 40 && !QTY_MARK.test(t)) return false;
+  if (!(REWARD_WORDS.test(t) || QTY_MARK.test(t))) return false;
+  // 要有獎勵語意,否則「販售時間只到11/25」這種也會被收進來
+  return /獎|送|抽|贈|領|獲得|帶走|物資|好禮|禮物/.test(t);
+}
+
+function collectFrom(lines, maxLines) {
   const out = [];
-
   // 第一行:去掉開頭的冒號、空白、裝飾符號
   const firstInline = lines[0].replace(/^[\s:：\-—、。]+/, '').trim();
   if (firstInline && !isStopLine(firstInline) && !isNoiseLine(firstInline)) out.push(firstInline);
@@ -121,6 +203,20 @@ export function extractRewardLines(message, maxLines = 8) {
     out.push(t);
   }
   return out;
+}
+
+export function extractRewardLines(message, maxLines = 8) {
+  const text = typeof message === 'string' ? message : '';
+  if (!text) return [];
+
+  for (const field of REWARD_FIELDS) {
+    const idx = fieldAt(text, field);
+    if (idx < 0) continue;
+    const out = collectFrom(text.slice(idx + field.length).split('\n'), maxLines);
+    if (out.length) return out;
+  }
+  // 完全沒有引導詞:掃全文
+  return text.split('\n').filter(isRewardLine).slice(0, maxLines).map((l) => l.trim());
 }
 
 export function extractRewardText(message) {
@@ -269,10 +365,17 @@ const GET_VERB = /(?:獲得|領取|拿到|得到)[\s:：]*/g;
 const LEAD_PATTERNS = [
   // 「完成投稿皆可獲得活動獎勵超A級解碼器 × 5」切完後會剩「活動獎勵」當開頭
   /^活動獎勵[\s:：]*/,
+  // 開頭的【標題】。「【末日小確幸】分享你的覺醒系統組合,就送覺醒齒輪*3」
+  // 後面必須還有內容:「【末日解碼器*5】」整個被括起來的是獎勵名本身,不可清掉
+  /^【[^】]{0,20}】(?=.)\s*/,
+  // 「💥貼文留言獎:」「🏅【投稿獎】」這種獎項名
+  /^[^:：\n]{0,12}獎[\s:：]+/,
   // 「就有機會抽中:災厄之章服裝選擇箱 ×1」→ 清掉「就有機會抽中:」。
   // **前面不可以有括號**:「幻夢道長－薇薇安*1(抽出1位)」的「抽出」在括號裡,
   // 清掉的話獎勵名稱整個不見,只剩「1位)」(2026-11-20 實測)
   /^[^（(]{0,14}?(?:抽出|抽選|抽中|贈送|送出)[\s:：]*/,
+  // 「分享你的覺醒系統組合,就送」「就可以帶走」這類句尾動詞
+  /^[^（(]{0,20}?(?:就送|就抽|送你|送給|帶走|可得)[\s:：]*/,
   // 「留言就送超A級服裝角色解碼器*3」的前綴
   /^留言(?:就|即|後|處)?(?:送|抽|贈|領|中)[\s:：]*/,
   // 冒號是必要的:「獎勵:X」才是欄位名前綴,
@@ -282,7 +385,7 @@ const LEAD_PATTERNS = [
 ];
 // 括號內容長這樣就是名額/時程附註,可以清。
 // **不含「永久」「N日」「N天」**——那是獎勵屬性,體驗型與永久型的魅力度差很多。
-const NOTE_IN_PAREN = /限領|限一次|限 ?\d+ ?次|限制獲得|每人|每位|每\s*個?帳號|名額|數量有限|隨機|不重複|共\s*[\d一二兩三四五六七八九十]+\s*[名位]|得獎者|抽出|抽\s*\d|發放|維護/;
+const NOTE_IN_PAREN = /限領|限一次|限 ?\d+ ?次|限制獲得|每人|每位|每\s*個?帳號|名額|數量有限|隨機|不重複|共\s*[\d一二兩三四五六七八九十]+\s*[名位]|得獎者|抽出|抽\s*\d|發放|維護|暱稱|登場/;
 const TAIL_PATTERNS = [
   // 「共N名」是名額附註不是獎勵數量,要清掉。
   // 數字含中文與全角(「共兩名」「共２名」)——2026-11-19 使用者截圖的案例。
@@ -291,6 +394,8 @@ const TAIL_PATTERNS = [
   /[\s\uFF0C,、]*抽\s*[\d一二三四五六七八九十]*\s*(?:位|名|人)?\s*(?:獲得|得到|領取)?\s*$/,
   // 「妖刀村雨VI*1 一位」的「一位」
   /[\s\uFF0C,、]+[\d一二三四五六七八九十]+\s*(?:位|名)\s*$/,
+  // 語尾助詞:「喬露*1 (永久) 唷」
+  /\s*[唷喔囉啦呀哦吧呦]+\s*$/,
   // 全角逗號要用 \uFF0C 明寫,之前直接貼全角字元沒生效,尾巴殘留「,」
   /[\s\uFF0C,、。!！;；]+$/
 ];
@@ -403,6 +508,7 @@ export function toActivityRow(post) {
     delivery: summarizeDelivery(rewards),
     rewardCount: rewards.length,
     commentDriven,
+    difficulty: classifyDifficulty(post.message),
     comments: post.comments ?? 0,
     reactions: post.reactions ?? 0,
     shares: post.shares ?? 0,
@@ -410,7 +516,7 @@ export function toActivityRow(post) {
   };
 }
 
-const CSV_HEADERS = ['發布日期', '活動標題', '獎勵名稱', '發放方式', '活動類型', '獎勵項目數', '留言數', '心情數', '分享數', '貼文連結'];
+const CSV_HEADERS = ['發布日期', '活動標題', '獎勵名稱', '發放方式', '活動類型', '活動難度', '獎勵項目數', '留言數', '心情數', '分享數', '貼文連結'];
 
 function csvCell(v) {
   const s = v === null || v === undefined ? '' : String(v);
@@ -425,6 +531,7 @@ export function activityCsv(rows = []) {
       r.rewards.map((x) => x.name).join('\n'),
       r.rewards.map((x) => x.delivery).join('\n'),
       r.commentDriven ? '留言互動型' : '非留言型(直接發放)',
+      r.difficulty || '',
       r.rewardCount,
       r.comments, r.reactions, r.shares, r.permalink
     ].map(csvCell).join(','));
