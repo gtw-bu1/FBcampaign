@@ -30,6 +30,25 @@ export function sinceSeconds(months, now = Date.now()) {
   return Math.floor(d.getTime() / 1000);
 }
 
+// 依發放方式統計留言數。平均會被極端值拉歪,所以中位數一起給。
+export function deliveryStats(rows = []) {
+  const groups = {};
+  for (const r of rows) (groups[r.delivery] ||= []).push(r.comments);
+  return Object.entries(groups)
+    .map(([mode, v]) => {
+      const sorted = v.slice().sort((a, b) => a - b);
+      const avg = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+      return {
+        mode,
+        n: sorted.length,
+        avg: Math.round(avg * 10) / 10,
+        median: sorted[Math.floor(sorted.length / 2)],
+        max: sorted[sorted.length - 1]
+      };
+    })
+    .sort((a, b) => b.n - a.n);
+}
+
 function renderHtml({ rows, months, scanned, truncated, csvUrl }) {
   const row = (r) => `<tr>
     <td class="d">${escapeHtml(r.date)}</td>
@@ -46,16 +65,29 @@ function renderHtml({ rows, months, scanned, truncated, csvUrl }) {
     <td class="lk">${r.permalink ? `<a href="${escapeHtml(r.permalink)}" target="_blank" rel="noreferrer">看貼文</a>` : ''}</td>
   </tr>`;
 
+  const table = (list) => `<table><thead><tr><th>日期</th><th>活動標題（第一行）</th><th>獎勵名稱</th><th>發放方式</th><th>留言</th><th>心情</th><th>分享</th><th></th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>`;
+
+  const driven = rows.filter((r) => r.commentDriven);
+  const notDriven = rows.filter((r) => !r.commentDriven);
+  const st = deliveryStats(driven);
+
+  const statTable = st.length ? `<table class="st"><thead><tr><th>發放方式</th><th>則數</th><th>平均留言</th><th>中位數</th><th>最高</th></tr></thead><tbody>${st.map((s) => `<tr>
+      <td class="${s.mode === '留言就抽' ? 'draw' : s.mode === '留言就送' ? 'give' : 'dim'}">${escapeHtml(s.mode)}</td>
+      <td class="n">${s.n}</td><td class="n hi">${s.avg}</td><td class="n">${s.median}</td><td class="n">${s.max}</td>
+    </tr>`).join('')}</tbody></table>` : '';
+
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>活動貼文 × 留言數</title><style>
 body{font-family:'Noto Sans TC','Microsoft JhengHei',sans-serif;background:#f6f5f1;color:#302d28;margin:0;padding:26px}
 .wrap{max-width:1100px;margin:0 auto}
 h1{font-size:19px;margin:0 0 4px}
+h2{font-size:14px;margin:26px 0 8px}
 .sub{font-size:11px;color:#a3998b;margin:0 0 14px;line-height:1.8}
 .note{font-size:11px;line-height:1.9;background:#fff8ed;border:1px solid #f0e3cc;border-radius:8px;padding:11px 13px;margin-bottom:16px}
 .card{background:#fff;border:1px solid #e7e5df;border-radius:12px;padding:16px 18px;overflow-x:auto}
 table{width:100%;border-collapse:collapse;font-size:12px}
+table.st{width:auto;min-width:420px}
 th{text-align:left;padding:9px 8px;color:#7b8674;font-weight:400;border-bottom:1px solid #e7e5df;white-space:nowrap}
 td{padding:11px 8px;border-bottom:1px solid #f6f5f1;vertical-align:top}
 td.d{white-space:nowrap;color:#7b8674;font-size:11px}
@@ -64,32 +96,44 @@ td.rw{line-height:1.8;min-width:280px}
 td.rw div{padding:1px 0}
 td.dv{white-space:nowrap;line-height:1.8}
 td.dv div{padding:1px 0}
-td.dv .draw{color:#9a6a1e;font-weight:700}
-td.dv .give{color:#2f7d4f;font-weight:700}
+td.dv .draw,td.draw{color:#9a6a1e;font-weight:700}
+td.dv .give,td.give{color:#2f7d4f;font-weight:700}
 td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td.hi{font-weight:800;font-size:15px;color:#302d28}
 td.lk a{font-size:10px;color:#7b8674}
 .dim{color:#c4bcae}
 a.dl{display:inline-block;background:#38372f;color:#fff;border-radius:7px;padding:9px 16px;font-size:12px;text-decoration:none;margin-bottom:14px}
 .empty{font-size:12px;color:#b34b34;background:#fff3f0;border-radius:8px;padding:12px 14px}
+.why{font-size:11px;color:#a3998b;line-height:1.8;margin:6px 0 0}
 </style></head><body><div class="wrap">
 <h1>活動貼文 × 留言數</h1>
-<p class="sub">最近 ${months} 個月共掃過 ${scanned} 則貼文,其中 <strong>${rows.length} 則</strong>文案含「活動獎勵」${truncated ? '(已達分頁上限,可能還有更舊的貼文沒抓到)' : ''}。依發布日期由新到舊排列。</p>
+<p class="sub">最近 ${months} 個月共掃過 ${scanned} 則貼文,其中 <strong>${rows.length} 則</strong>文案含「活動獎勵」${truncated ? '(已達分頁上限,可能還有更舊的貼文沒抓到)' : ''}。
+留言互動型 ${driven.length} 則、非留言型 ${notDriven.length} 則,各自依發布日期由新到舊排列。</p>
 <div class="note"><strong>「留言數」不等於活動參與人數</strong>——Facebook API 不提供參與人數(那在遊戲後台)。
 對「留言參加」型的活動,留言數是合理的代理指標。<br>
-獎勵名稱是從「活動獎勵」之後的每一行清出來的(去掉「參與活動即可獲得」這類描述與「每帳號限領 1 次」這種名額附註,
-但<strong>保留「（7天）」「（永久）」</strong>,因為那是獎勵屬性)。<br>
-<strong>發放方式</strong>:寫「抽出/抽獎/留言就抽」算<span style="color:#9a6a1e;font-weight:700">留言就抽</span>;
-寫「即可獲得/限領/留言就送」算<span style="color:#2f7d4f;font-weight:700">留言就送</span>。
+獎勵名稱是從「活動獎勵」之後的每一行清出來的:去掉「參與活動即可獲得」這類描述、「每帳號限領 1 次」這種名額附註、
+以及混進來的活動說明與得獎注意事項,但<strong>保留「（7天）」「（永久）」</strong>,因為那是獎勵屬性。<br>
+<strong>發放方式</strong>:寫「抽出/抽獎/留言就抽」算<span class="draw">留言就抽</span>;
+寫「即可獲得/限領/留言就送」算<span class="give">留言就送</span>。
 沒寫這些字但有<strong>中獎名額</strong>(「共兩名」「＊１名」)也算留言就抽——有上限就不是人人有獎;
 但「前100名」「限量」「送完為止」是先到先得,算送。
-線索寫在<strong>標題</strong>(【留言送解碼器】、梗圖創作抽好禮)也認得;
-同一則其他行判得出來、只有某行沒寫時,那行會跟著繼承。
-同一個活動常常兩種都有,所以會看到兩行。</div>
-<p><a class="dl" href="${escapeHtml(csvUrl)}">⤓ 下載 CSV(Excel 可直接開)</a></p>
-<div class="card">${rows.length
-    ? `<table><thead><tr><th>日期</th><th>活動標題（第一行）</th><th>獎勵名稱</th><th>發放方式</th><th>留言</th><th>心情</th><th>分享</th><th></th></tr></thead><tbody>${rows.map(row).join('')}</tbody></table>`
-    : `<p class="empty">最近 ${months} 個月掃過的 ${scanned} 則貼文裡,沒有一則文案含「活動獎勵」四個字。可以把 months 調大(例如網址加 ?months=36),或告訴我你們活動貼文實際的欄位寫法。</p>`}</div>
+線索寫在<strong>標題</strong>(【留言送解碼器】、梗圖創作抽好禮)也認得;同一則其他行判得出來時,沒寫的那行會跟著繼承。</div>
+
+${statTable ? `<h2>依發放方式看留言數（只算留言互動型 ${driven.length} 則）</h2>
+<div class="card">${statTable}
+<p class="why">平均和中位數要一起看:平均高但中位數低,代表有幾則特別爆,一般情況沒那麼好。</p></div>` : ''}
+
+<p style="margin-top:18px"><a class="dl" href="${escapeHtml(csvUrl)}">⤓ 下載 CSV(Excel 可直接開)</a></p>
+
+<h2>留言互動型（${driven.length} 則）</h2>
+<div class="card">${driven.length ? table(driven) : `<p class="empty">沒有留言互動型的活動貼文。</p>`}</div>
+
+${notDriven.length ? `<h2>非留言型・直接發放（${notDriven.length} 則）</h2>
+<div class="card"><p class="why">這些貼文的文案沒有要求留言(例如週年慶序號大放送),留言數自然很低,
+<strong>不該跟上面的留言型活動一起比較</strong>,所以單獨列出、也不列入上面的統計。</p>
+${table(notDriven)}</div>` : ''}
+
+${rows.length ? '' : `<p class="empty">最近 ${months} 個月掃過的 ${scanned} 則貼文裡,沒有一則文案含「活動獎勵」四個字。可以把 months 調大(例如網址加 ?months=36),或告訴我你們活動貼文實際的欄位寫法。</p>`}
 </div></body></html>`;
 }
 

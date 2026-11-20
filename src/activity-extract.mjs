@@ -36,6 +36,45 @@ function isStopLine(line) {
   return STOP_PATTERNS.some((re) => re.test(t));
 }
 
+// --- 2026-11-20:把混進獎勵欄的說明文字擋掉 ---
+//
+// 實測 45 則活動貼文,有 13 則的獎勵欄抓到不是獎勵的東西。原因是「活動獎勵」
+// 四個字常出現在句子中間(「完成投稿皆可獲得活動獎勵超A級解碼器」)或條款裡
+// (「本活動獎勵價值未達中獎稅標準」),於是後面接的是文案或注意事項,
+// 而那些行**沒有任何欄位名可以當停止點**,只靠 STOP_PATTERNS 攔不住。
+//
+// 真實被誤抓的例子:
+//   「2. 所有得獎者須於2025/12/15 23:59前回填領獎資料…」(大會考,抓了 7 行條款)
+//   「在8/23 23:59前,留言處寫下你的答案!」(災厄學堂 11 則)
+//   「讓我們一起回顧《災厄之章》的危機真相!」
+//   「✨活動表單:https://forms.gamania.com/…」
+//   「,千萬別錯過囉👋」
+//
+// 判法用兩層,順序很重要:
+//   1. 強雜訊(條款用語、編號開頭、網址、呼籲句)→ 直接丟。
+//   2. 既沒有數量標記(×3、*1、5個)也沒有獎勵詞 → 當說明丟掉。
+// 第 2 層不能寫進第 1 層:「7-11禮券200元x1(共兩名得獎者)」含「得獎者」,
+// 但它是真的獎勵;有數量標記就該留下。
+const STRONG_NOISE = [
+  /https?:\/\//,
+  /^\s*\d+\s*[.、]/,                     // 「2. 所有得獎者須…」條款編號
+  /折換現金|主辦單位|視同放棄|寄送地址|申報|中獎稅|不予補發|無法重新申請|轉換、轉讓/,
+  /留言處|寫下你的答案|把握機會|一起回顧|千萬別|別錯過|請務必|敬請期待/,
+  /活動表單|報名表單|詳情請見|詳見官網|活動頁面/
+];
+// 數量標記。先經 normalizeNumbers,否則全角「＊１」比不到
+const QTY_MARK = /[×xX*＊✕]\s*\d+|\d+\s*(?:個|份|張|組|名|位|日|天|次|元|套|點)/;
+// 這個粉專的獎勵常見詞。沒有數量標記時靠它救(「2026馬年棒球噴漆」)
+const REWARD_WORDS = /解碼器|Pass|禮券|選擇箱|寶箱|箱|勳章|噴漆|服裝|武器|角色|等待室|齒輪|顏料|造型|稱號|點數|金幣|序號|好運綻放/;
+
+export function isNoiseLine(line) {
+  const t = normalizeNumbers(line).trim();
+  if (!t) return true;
+  if (STRONG_NOISE.some((re) => re.test(t))) return true;
+  if (!QTY_MARK.test(t) && !REWARD_WORDS.test(t)) return true;
+  return false;
+}
+
 // 貼文是不是我們要的活動貼文:文案裡有「活動獎勵」四個字
 export function hasRewardField(message) {
   return typeof message === 'string' && message.includes(REWARD_FIELD);
@@ -65,9 +104,12 @@ export function extractRewardLines(message, maxLines = 8) {
 
   // 第一行:去掉開頭的冒號、空白、裝飾符號
   const firstInline = lines[0].replace(/^[\s:：\-—、。]+/, '').trim();
-  if (firstInline && !isStopLine(firstInline)) out.push(firstInline);
+  if (firstInline && !isStopLine(firstInline) && !isNoiseLine(firstInline)) out.push(firstInline);
 
-  for (let i = 1; i < lines.length && out.length < maxLines; i++) {
+  // 掃描窗口上限 14 行:雜訊行是 continue 而不是 break,沒有窗口就可能
+  // 一路掃到文末撿到無關的東西
+  const WINDOW = 14;
+  for (let i = 1; i < lines.length && i <= WINDOW && out.length < maxLines; i++) {
     const t = lines[i].trim();
     if (!t) {
       // 空行:已經收到內容就結束,還沒收到就繼續找(欄位名與內容之間可能空一行)
@@ -75,6 +117,7 @@ export function extractRewardLines(message, maxLines = 8) {
       continue;
     }
     if (isStopLine(t)) break;
+    if (isNoiseLine(t)) continue;
     out.push(t);
   }
   return out;
@@ -178,13 +221,28 @@ export function classifyDelivery(line) {
   return DELIVERY.UNKNOWN;
 }
 
-// 標題/整篇文案用的寬鬆版:嚴格規則跑完還是不知道時,只要出現「抽」就當抽
+// 標題/整篇文案用的寬鬆版:嚴格規則跑完還是不知道時用。
+// 「送」那一側也要有(2026-11-20):標題寫「清明追思送禮物」「遊玩馬年史詩送好運」
+// 「末日物資發放」的貼文,獎勵行只有獎勵名稱,嚴格規則一律判不出來。
+const LOOSE_GIVE = /送|贈|發放|放送|領取/;
+
 export function classifyDeliveryLoose(text) {
   const strict = classifyDelivery(text);
   if (strict !== DELIVERY.UNKNOWN) return strict;
   const t = normalizeNumbers(text);
   if (LOOSE_DRAW.test(t) && !NOT_LOTTERY.test(t)) return DELIVERY.DRAW;
+  if (LOOSE_GIVE.test(t)) return DELIVERY.GIVE;
   return DELIVERY.UNKNOWN;
+}
+
+// --- 2026-11-20 使用者確認:非留言型活動不該跟留言型放在一起比 ---
+//
+// 「🎉18週年慶序號大放送!」那 7 則留言數 0~6,因為獎勵是直接發序號、
+// 根本不用留言。把它們混進平均值會把「留言就送」的成效拉低一大截。
+// 判法:文案要求留言/標記/分享才算留言型。
+export function isCommentDriven(message) {
+  const t = String(message ?? '');
+  return /留言|回覆本篇|回覆這篇|標記好友|tag\s*好友/i.test(t);
 }
 
 // 把一行獎勵描述清成只剩「名稱 + 數量」。
@@ -196,21 +254,34 @@ export function classifyDeliveryLoose(text) {
 //    用固定長度的前綴比對清不掉,反而留下「10 名幸運玩家獲得」。
 // 2. **括號不可一律清掉。**「（7天）」「（永久）」是獎勵的重要屬性
 //    (體驗型與永久型的魅力度差很多),只有「（每帳號限領 1 次）」這種名額附註才該清。
-const GET_VERB = /(?:獲得|領取|拿到|得到)\s*/g;
+const GET_VERB = /(?:獲得|領取|拿到|得到)[\s:：]*/g;
 const LEAD_PATTERNS = [
-  /^.{0,12}?(?:抽出|抽選|抽中|贈送|送出)\s*/,
+  // 「完成投稿皆可獲得活動獎勵超A級解碼器 × 5」切完後會剩「活動獎勵」當開頭
+  /^活動獎勵[\s:：]*/,
+  // 「就有機會抽中:災厄之章服裝選擇箱 ×1」→ 清掉「就有機會抽中:」。
+  // **前面不可以有括號**:「幻夢道長－薇薇安*1(抽出1位)」的「抽出」在括號裡,
+  // 清掉的話獎勵名稱整個不見,只剩「1位)」(2026-11-20 實測)
+  /^[^（(]{0,14}?(?:抽出|抽選|抽中|贈送|送出)[\s:：]*/,
+  // 「留言就送超A級服裝角色解碼器*3」的前綴
+  /^留言(?:就|即|後|處)?(?:送|抽|贈|領|中)[\s:：]*/,
   // 冒號是必要的:「獎勵:X」才是欄位名前綴,
   // 「好禮 x1」的「好禮」是獎勵名稱本身,不可清掉(2026-11-19 測試抓到)
   /^(?:獎勵|好禮|贈品)\s*[:：]\s*/,
-  /^[\s・•·,、\-—]+/
+  /^[\s・•·,、\-—:：]+/
 ];
-// 括號內容長這樣就是名額/次數附註,可以清
-const NOTE_IN_PAREN = /限領|限一次|限 ?\d+ ?次|每人|每帳號|每位|名額|數量有限|隨機|不重複/;
+// 括號內容長這樣就是名額/時程附註,可以清。
+// **不含「永久」「N日」「N天」**——那是獎勵屬性,體驗型與永久型的魅力度差很多。
+const NOTE_IN_PAREN = /限領|限一次|限 ?\d+ ?次|限制獲得|每人|每位|每\s*個?帳號|名額|數量有限|隨機|不重複|共\s*[\d一二兩三四五六七八九十]+\s*[名位]|得獎者|抽出|抽\s*\d|發放|維護/;
 const TAIL_PATTERNS = [
   // 「共N名」是名額附註不是獎勵數量,要清掉。
   // 數字含中文與全角(「共兩名」「共２名」)——2026-11-19 使用者截圖的案例。
-  /\s*[,、,]?\s*共\s*[\d０-９一二兩三四五六七八九十]+\s*(?:名|位|份|組|個|人)\s*$/,
-  /\s*[,、。!！]\s*$/
+  /[\s\uFF0C,、]*共\s*[\d０-９一二兩三四五六七八九十]+\s*(?:名|位|份|組|個|人)\s*$/,
+  // 「邪靈碎岩VI*1,抽一位獲得」的尾巴(2026-11-20 實測)
+  /[\s\uFF0C,、]*抽\s*[\d一二三四五六七八九十]*\s*(?:位|名|人)?\s*(?:獲得|得到|領取)?\s*$/,
+  // 「妖刀村雨VI*1 一位」的「一位」
+  /[\s\uFF0C,、]+[\d一二三四五六七八九十]+\s*(?:位|名)\s*$/,
+  // 全角逗號要用 \uFF0C 明寫,之前直接貼全角字元沒生效,尾巴殘留「,」
+  /[\s\uFF0C,、。!！;；]+$/
 ];
 
 function stripNoteParens(text) {
@@ -220,23 +291,35 @@ function stripNoteParens(text) {
     .trim();
 }
 
+// 尾部的 emoji 與裝飾符號。要先清掉,否則「（共3名神槍手）✨」的括號不在行尾,
+// 名額附註就清不掉(2026-11-20 實測災厄學堂 11 則全中)
+function stripTailDecor(text) {
+  return text.replace(/[\s\u2190-\u21FF\u2600-\u27BF\uFE0F\u{1F000}-\u{1FAFF}]+$/u, '').trim();
+}
+
 export function cleanRewardName(line, maxLen = 40) {
   let t = typeof line === 'string' ? line.trim() : '';
   if (!t) return '';
   const original = t;
 
-  // 先用「獲得/領取」切:取最後一個之後的內容,那才是獎勵本體
+  // 先用「獲得/領取」切:取最後一個之後的內容,那才是獎勵本體。
+  // 但**括號裡的「獲得」不算切點**(2026-11-20 實測兩個真實案例):
+  //   「超A服裝角色解碼器*10（每個帳號限制獲得1次）」→ 會切出「1次）」
+  //   「邪靈碎岩VI*1，抽一位獲得（11/26發放）」    → 會切出「（11/26發放）」
   const verbs = [...t.matchAll(GET_VERB)];
   if (verbs.length) {
     const last = verbs[verbs.length - 1];
     const after = t.slice(last.index + last[0].length).trim();
-    if (after.length >= 2) t = after;
+    const closesParen = /[）)]\s*$/.test(after) && !/[（(]/.test(after);  // 切點在括號內
+    const wrapped = /^[（(].*[）)]$/.test(after);                        // 切出來整個是括號
+    if (after.length >= 2 && !closesParen && !wrapped) t = after;
   }
 
   for (const re of LEAD_PATTERNS) t = t.replace(re, '').trim();
-  // 附註括號與「共N名」可能同時出現,反覆清到不再變化
-  for (let i = 0; i < 3; i++) {
+  // 附註括號、「共N名」、尾部裝飾可能交錯出現,反覆清到不再變化
+  for (let i = 0; i < 4; i++) {
     const before = t;
+    t = stripTailDecor(t);
     t = stripNoteParens(t);
     for (const re of TAIL_PATTERNS) t = t.replace(re, '').trim();
     if (t === before) break;
@@ -304,6 +387,7 @@ export function toActivityRow(post) {
     rewards,
     delivery: summarizeDelivery(rewards),
     rewardCount: rewards.length,
+    commentDriven: isCommentDriven(post.message),
     comments: post.comments ?? 0,
     reactions: post.reactions ?? 0,
     shares: post.shares ?? 0,
@@ -311,7 +395,7 @@ export function toActivityRow(post) {
   };
 }
 
-const CSV_HEADERS = ['發布日期', '活動標題', '獎勵名稱', '發放方式', '獎勵項目數', '留言數', '心情數', '分享數', '貼文連結'];
+const CSV_HEADERS = ['發布日期', '活動標題', '獎勵名稱', '發放方式', '活動類型', '獎勵項目數', '留言數', '心情數', '分享數', '貼文連結'];
 
 function csvCell(v) {
   const s = v === null || v === undefined ? '' : String(v);
@@ -325,6 +409,7 @@ export function activityCsv(rows = []) {
       r.date, r.title,
       r.rewards.map((x) => x.name).join('\n'),
       r.rewards.map((x) => x.delivery).join('\n'),
+      r.commentDriven ? '留言互動型' : '非留言型(直接發放)',
       r.rewardCount,
       r.comments, r.reactions, r.shares, r.permalink
     ].map(csvCell).join(','));
