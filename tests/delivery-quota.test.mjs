@@ -94,7 +94,9 @@ test('整則:共兩名的貼文走完 toActivityRow 不會是未標示,名稱也
     comments: 72
   };
   const row = toActivityRow(post);
-  assert.equal(row.delivery, DELIVERY.DRAW);
+  // 真實文案裡沒有要求留言,所以歸成非留言型,標籤換成「抽獎（非留言）」。
+  // 重點是「共兩名」判得出是抽,不是未標示。
+  assert.equal(row.delivery, DELIVERY.DRAW_NO_COMMENT);
   assert.equal(row.rewards[0].name, '輪迴脈衝*1、全新男角巴德羅*1');
   assert.equal(row.comments, 72);
 });
@@ -107,7 +109,8 @@ test('整則:全角名額 + 標題有抽,兩行都判得出來', () => {
       '【玩災厄9-3,抽出新角色🥳】',
       '活動獎勵',
       '拳皇鬥士－伊莎貝拉 (永久)＋碧藍羽翼 (永久)＊１名',
-      '萬眾矚目－玲玲 (永久)＋碧藍羽翼 (永久)＊１名'
+      '萬眾矚目－玲玲 (永久)＋碧藍羽翼 (永久)＊１名',
+      '活動方式:在本篇貼文下方留言'
     ].join('\n'),
     comments: 166
   };

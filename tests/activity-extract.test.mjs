@@ -17,7 +17,8 @@ const REAL = `【中秋送好禮🌕】維拉．塔莉卡陪你一起過中秋�
 2026/09/15 - 2026/09/30
 
 注意事項
-每人限中獎一次`;
+每人限中獎一次
+在本篇貼文下方留言參加活動`;
 
 test('認得出含「活動獎勵」的貼文', () => {
   assert.equal(hasRewardField(REAL), true);
@@ -124,9 +125,9 @@ test('同時有抽與送時,整則總結為「兩種都有」', () => {
 });
 
 test('只有一種發放方式時就顯示那一種', () => {
-  const onlyDraw = '【A】\n活動獎勵\n抽出 限定武器 x1 共3名';
+  const onlyDraw = '【A】\n活動獎勵\n抽出 限定武器 x1 共3名\n留言參加';
   assert.equal(toActivityRow({ message: onlyDraw }).delivery, DELIVERY.DRAW);
-  const onlyGive = '【A】\n活動獎勵\n參與活動即可獲得 解碼器 x1';
+  const onlyGive = '【A】\n活動獎勵\n參與活動即可獲得 解碼器 x1\n留言參加';
   assert.equal(toActivityRow({ message: onlyGive }).delivery, DELIVERY.GIVE);
 });
 
