@@ -156,18 +156,61 @@ export default async function handler(req, res) {
 
   try {
     let result;
-    if (imageDataUrl) {
-      // 有圖:走 /photos,用 multipart 直接把位元組送上去。
+    if (imageDataUrl && scheduled) {
+      // --- 有圖 + 排程:必須走兩步,不能直接在 /photos 帶 scheduled_publish_time ---
+      //
+      // 2026-11-25 實證:原本的做法(POST /{page}/photos 帶 published=false +
+      // scheduled_publish_time)Facebook 會收下,到時間也「發布」了,
+      // 但發出來的是**相簿裡的一張照片**,不是粉專動態貼文——
+      // 粉專上看不到、同事也看不到,只有相簿裡有。
+      //   壞的那則:貼文編號 284455941624148_1572308271600147、
+      //             照片編號 1572308271600147(兩者相同 → 貼文就是那張照片)、
+      //             permalink 是 photo.php?fbid=…&set=a.<相簿>
+      //   好的貼文:貼文編號 …_1579963497501291、照片編號 1579963467501294(不同)
+      //             → 動態貼文包著照片,permalink 是 /<page>/posts/<id>
+      //
+      // 官方 Pages API 的「貼文」指南只在 /{page}/feed 這一節寫排程
+      // (published=false + scheduled_publish_time);/{page}/photos 那一節沒有排程。
+      // 所以照文件做:先把照片以 published=false 上傳(此時不帶排程時間),
+      // 再用 /feed 帶 attached_media 排程。
+      const decoded = decodeDataUrl(imageDataUrl);
+      if (!decoded) return res.status(400).json({ error: '圖片解析失敗。' });
+
+      const form = new FormData();
+      form.append('published', 'false');
+      form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
+      const photo = await graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
+      const mediaId = photo.id || '';
+      if (!mediaId) {
+        return res.status(502).json({ error: '圖片上傳成功但 Facebook 沒有回照片編號,無法排程。請重試。' });
+      }
+
+      result = await graph(`${pageId}/feed`, {
+        token,
+        json: {
+          message,
+          ...(link ? { link } : {}),
+          attached_media: [{ media_fbid: String(mediaId) }],
+          published: false,
+          scheduled_publish_time: scheduledPublishTime
+        }
+      });
+      // 排程貼文的編號不該等於照片編號;相等就表示又變成「相簿照片」了。
+      const tail = String(result.id || '').split('_')[1] || '';
+      if (tail && tail === String(mediaId)) {
+        return res.status(502).json({
+          error: 'Facebook 把這則排程建成了相簿照片而不是動態貼文,發出來粉專上會看不到。請回報給開發者。'
+        });
+      }
+    } else if (imageDataUrl) {
+      // 有圖、立刻發:走 /photos,用 multipart 直接把位元組送上去。
       // 不用 url 參數,因為那要求圖片先有公開可存取的網址;我們的圖是前端現做的。
+      // 這條路已驗證會建立正常的動態貼文(11-25 的 15:00 與 15:03 兩則)。
       const decoded = decodeDataUrl(imageDataUrl);
       if (!decoded) return res.status(400).json({ error: '圖片解析失敗。' });
       const form = new FormData();
       form.append('caption', message);
       form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
-      if (scheduled) {
-        form.append('published', 'false');
-        form.append('scheduled_publish_time', String(scheduledPublishTime));
-      }
       result = await graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
     } else {
       const json = { message, ...(link ? { link } : {}) };

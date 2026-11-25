@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validatePublishRequest, scheduleWindow, decodeDataUrl, readGraphError, fallbackPermalink, fetchPermalink } from '../api/post-to-facebook.js';
+import handler, { validatePublishRequest, scheduleWindow, decodeDataUrl, readGraphError, fallbackPermalink, fetchPermalink } from '../api/post-to-facebook.js';
+import { resetTokenCache } from '../api/_pagetoken.mjs';
 
 const NOW = 1_800_000_000;
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -112,5 +113,110 @@ test('permalink 以 Graph 回的 permalink_url 為準,拿不到就回空字串�
     assert.equal(await fetchPermalink('', 't'), '');
   } finally {
     globalThis.fetch = oldFetch;
+  }
+});
+
+
+// 2026-11-25 真實事故的回歸測試:
+// 排程 + 有圖**不可以**直接打 /photos 帶 scheduled_publish_time——
+// 那樣發出來是相簿照片,粉專動態上看不到(14:00 那則就是這樣,同事也看不到)。
+// 必須先以 published=false 上傳照片,再用 /feed 帶 attached_media 排程。
+test('排程 + 有圖要走「先上傳未發布照片,再用 /feed 帶 attached_media」兩步', async () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+  const pageId = '284455941624148';
+  const oldEnv = { id: process.env.FB_PAGE_ID, tk: process.env.FB_PAGE_ACCESS_TOKEN, code: process.env.FB_CAMPAIGN_ACCESS_CODE };
+  const oldFetch = globalThis.fetch;
+  process.env.FB_PAGE_ID = pageId;
+  process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-for-test';
+  process.env.FB_CAMPAIGN_ACCESS_CODE = 'test-access-code-at-least-24-chars';
+  resetTokenCache();
+
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    calls.push({ url: u, options });
+    if (u.includes('me?fields=id,name')) return { ok: true, status: 200, json: async () => ({ id: pageId, name: '測試粉專' }) };
+    if (u.includes('/photos')) return { ok: true, status: 200, json: async () => ({ id: 'PHOTO_1' }) };
+    if (u.includes('/feed')) return { ok: true, status: 200, json: async () => ({ id: pageId + '_STORY_9' }) };
+    return { ok: false, status: 404, json: async () => ({ error: { message: 'unexpected ' + u } }) };
+  };
+
+  const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; } };
+  try {
+    await handler({
+      method: 'POST',
+      headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE },
+      body: { message: '【測試】排程文案', imageDataUrl: PNG, scheduledPublishTime: Math.floor(Date.now() / 1000) + 3600 }
+    }, res);
+
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    assert.equal(res.body.scheduled, true);
+    assert.equal(res.body.postId, pageId + '_STORY_9');
+    assert.equal(res.body.permalink, '', '排程貼文還沒公開,不該給網址');
+
+    const photoCall = calls.find((c) => c.url.includes('/photos'));
+    const feedCall = calls.find((c) => c.url.includes('/feed'));
+    assert.ok(photoCall, '要先上傳照片');
+    assert.ok(feedCall, '要再用 /feed 排程');
+
+    // 照片那一步:published=false,而且**不可以**帶 scheduled_publish_time
+    const fields = [...photoCall.options.body.keys()];
+    assert.equal(photoCall.options.body.get('published'), 'false');
+    assert.ok(!fields.includes('scheduled_publish_time'), '照片那一步不可以帶排程時間:' + fields.join(','));
+    assert.ok(!fields.includes('caption'), '文字要寫在 /feed 的 message,不是照片的 caption');
+
+    // /feed 那一步:帶 attached_media 指向剛上傳的照片
+    const sent = JSON.parse(feedCall.options.body);
+    assert.deepEqual(sent.attached_media, [{ media_fbid: 'PHOTO_1' }]);
+    assert.equal(sent.published, false);
+    assert.equal(sent.message, '【測試】排程文案');
+    assert.ok(Number.isInteger(sent.scheduled_publish_time));
+  } finally {
+    globalThis.fetch = oldFetch;
+    resetTokenCache();
+    if (oldEnv.id === undefined) delete process.env.FB_PAGE_ID; else process.env.FB_PAGE_ID = oldEnv.id;
+    if (oldEnv.tk === undefined) delete process.env.FB_PAGE_ACCESS_TOKEN; else process.env.FB_PAGE_ACCESS_TOKEN = oldEnv.tk;
+    if (oldEnv.code === undefined) delete process.env.FB_CAMPAIGN_ACCESS_CODE; else process.env.FB_CAMPAIGN_ACCESS_CODE = oldEnv.code;
+  }
+});
+
+test('立刻發布 + 有圖仍然走 /photos 帶 caption(這條路已驗證會建立正常動態貼文)', async () => {
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
+  const pageId = '284455941624148';
+  const oldEnv = { id: process.env.FB_PAGE_ID, tk: process.env.FB_PAGE_ACCESS_TOKEN, code: process.env.FB_CAMPAIGN_ACCESS_CODE };
+  const oldFetch = globalThis.fetch;
+  process.env.FB_PAGE_ID = pageId;
+  process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-for-test';
+  process.env.FB_CAMPAIGN_ACCESS_CODE = 'test-access-code-at-least-24-chars';
+  resetTokenCache();
+
+  const calls = [];
+  globalThis.fetch = async (url, options = {}) => {
+    const u = String(url);
+    calls.push(u);
+    if (u.includes('me?fields=id,name')) return { ok: true, status: 200, json: async () => ({ id: pageId, name: '測試粉專' }) };
+    if (u.includes('/photos')) return { ok: true, status: 200, json: async () => ({ id: 'PHOTO_2', post_id: pageId + '_STORY_7' }) };
+    if (u.includes('permalink_url')) return { ok: true, status: 200, json: async () => ({ permalink_url: 'https://www.facebook.com/1572421051588869/posts/STORY_7' }) };
+    return { ok: false, status: 404, json: async () => ({ error: { message: 'unexpected ' + u } }) };
+  };
+
+  const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; } };
+  try {
+    await handler({
+      method: 'POST',
+      headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE },
+      body: { message: '【測試】立刻發布', imageDataUrl: PNG }
+    }, res);
+    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
+    assert.equal(res.body.scheduled, false);
+    assert.equal(res.body.postId, pageId + '_STORY_7');
+    assert.equal(res.body.permalink, 'https://www.facebook.com/1572421051588869/posts/STORY_7');
+    assert.ok(!calls.some((u) => u.includes('/feed')), '立刻發布不需要繞 /feed');
+  } finally {
+    globalThis.fetch = oldFetch;
+    resetTokenCache();
+    if (oldEnv.id === undefined) delete process.env.FB_PAGE_ID; else process.env.FB_PAGE_ID = oldEnv.id;
+    if (oldEnv.tk === undefined) delete process.env.FB_PAGE_ACCESS_TOKEN; else process.env.FB_PAGE_ACCESS_TOKEN = oldEnv.tk;
+    if (oldEnv.code === undefined) delete process.env.FB_CAMPAIGN_ACCESS_CODE; else process.env.FB_CAMPAIGN_ACCESS_CODE = oldEnv.code;
   }
 });

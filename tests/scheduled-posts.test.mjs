@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { taipeiTime, normalizeScheduled } from '../api/scheduled-posts.js';
+import { taipeiTime, normalizeScheduled, validPostId } from '../api/scheduled-posts.js';
 
 test('排程時間轉成台北時間', () => {
   // 2026-11-25 14:00:00 +08:00 = 1795586400
@@ -31,4 +31,17 @@ test('整理排程貼文,並標出時間已過卻還沒發出的異常', () => {
   assert.equal(noTime.overdue, false);
   assert.equal(noTime.atText, '');
   assert.equal(noTime.message, '');
+});
+
+
+test('只接受合法的貼文編號,不讓輸入接進 Graph 的網址路徑', () => {
+  assert.equal(validPostId('284455941624148_1572308271600147'), true);
+  assert.equal(validPostId('1572308271600147'), true);
+  assert.equal(validPostId(' 284455941624148_1572308271600147 '), true);
+  assert.equal(validPostId('123'), false);
+  assert.equal(validPostId('abc'), false);
+  assert.equal(validPostId('123456/../me'), false);
+  assert.equal(validPostId('123456?fields=x'), false);
+  assert.equal(validPostId(''), false);
+  assert.equal(validPostId(undefined), false);
 });

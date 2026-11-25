@@ -45,8 +45,8 @@ export function normalizeScheduled(raw, nowSeconds = Math.floor(Date.now() / 100
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (req.method !== 'GET' && req.method !== 'POST') {
-    return res.status(405).json({ error: '僅接受 GET 或 POST。' });
+  if (req.method !== 'GET' && req.method !== 'POST' && req.method !== 'DELETE') {
+    return res.status(405).json({ error: '僅接受 GET、POST 或 DELETE。' });
   }
 
   const pageId = process.env.FB_PAGE_ID;
@@ -65,6 +65,8 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: error?.message || '無法取得粉絲專頁權杖。' });
   }
 
+  if (req.method === 'DELETE') return cancelScheduled(req, res, token);
+
   try {
     const response = await fetch(
       `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/scheduled_posts?fields=${FIELDS}&limit=50`,
@@ -80,6 +82,48 @@ export default async function handler(req, res) {
     return res.status(200).json({ ok: true, count: posts.length, posts });
   } catch (error) {
     const msg = error?.name === 'TimeoutError' ? 'Facebook 回應超時,請重試。' : (error?.message || '查詢失敗,請重試。');
+    return res.status(502).json({ error: msg });
+  }
+}
+
+// --- 取消排程 ---
+//
+// 只准刪「還沒公開」的貼文。刪已發布的貼文是不可回復的,而且使用者沒有要求這個功能,
+// 所以刪之前一定先問 Facebook 這則的 is_published,是 true 就拒絕。
+export function validPostId(raw) {
+  return typeof raw === 'string' && /^\d{5,}(_\d{5,})?$/.test(raw.trim());
+}
+
+async function cancelScheduled(req, res, token) {
+  const id = String(req.query?.id ?? req.body?.id ?? '').trim();
+  if (!validPostId(id)) return res.status(400).json({ error: '請給一個有效的貼文編號。' });
+
+  try {
+    const probe = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(id)}?fields=id,is_published,scheduled_publish_time`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) }
+    );
+    const info = await probe.json().catch(() => null);
+    if (!probe.ok) {
+      return res.status(502).json({ error: `找不到這則貼文:${info?.error?.message || `HTTP ${probe.status}`}` });
+    }
+    if (info?.is_published !== false) {
+      return res.status(409).json({
+        error: '這則已經公開發布了,不是排程貼文。已發布的貼文不會從這裡刪除——要刪請到粉絲專頁上操作。'
+      });
+    }
+
+    const del = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(id)}`,
+      { method: 'DELETE', headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) }
+    );
+    const result = await del.json().catch(() => null);
+    if (!del.ok) {
+      return res.status(502).json({ error: `取消失敗:${result?.error?.message || `HTTP ${del.status}`}` });
+    }
+    return res.status(200).json({ ok: true, deleted: id });
+  } catch (error) {
+    const msg = error?.name === 'TimeoutError' ? 'Facebook 回應超時,請重試。' : (error?.message || '取消失敗。');
     return res.status(502).json({ error: msg });
   }
 }

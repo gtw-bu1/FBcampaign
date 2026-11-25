@@ -42,6 +42,25 @@ function ScheduleQueue({ accessCode, reloadKey }) {
 
   useEffect(() => { if (reloadKey) load(); }, [reloadKey]);
 
+  // 只能取消「還沒公開」的排程貼文,後端會再確認一次 is_published。
+  async function cancel(post) {
+    if (!window.confirm(`確定要取消這則排程嗎？\n\n${post.atText}\n${(post.message || '').slice(0, 60)}\n\n取消後就不會發布了，無法復原。`)) return;
+    setState((s) => ({ ...s, phase: 'loading', error: '' }));
+    try {
+      const response = await fetch('/api/scheduled-posts?id=' + encodeURIComponent(post.id), {
+        method: 'DELETE',
+        credentials: 'same-origin',
+        headers: { ...(accessCode?.trim() ? { 'x-access-code': accessCode.trim() } : {}) }
+      });
+      const json = await response.json().catch(() => null);
+      if (!response.ok) throw Error(json?.error || `取消失敗（${response.status}）。`);
+    } catch (e) {
+      setState((s) => ({ ...s, phase: 'done', error: e?.message || '取消失敗。' }));
+      return;
+    }
+    load();
+  }
+
   return <div className="queue">
     <div className="queue-head">
       <strong>粉專上的排程佇列</strong>
@@ -57,6 +76,7 @@ function ScheduleQueue({ accessCode, reloadKey }) {
       <div>
         <div className="queue-at">{p.atText || '(沒有排程時間)'}{p.overdue && ' ⚠ 時間已過但還沒發出'}</div>
         <div className="queue-text">{(p.message || '(無文字)').replace(/\s+/g, ' ').slice(0, 90)}</div>
+        <button className="link-btn" disabled={state.phase === 'loading'} onClick={() => cancel(p)}>取消這則排程</button>
       </div>
     </div>)}
     {state.phase === 'done' && !state.error && state.posts.length > 0 &&
