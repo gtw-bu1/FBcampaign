@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validatePublishRequest, scheduleWindow, decodeDataUrl, readGraphError } from '../api/post-to-facebook.js';
+import { validatePublishRequest, scheduleWindow, decodeDataUrl, readGraphError, fallbackPermalink, fetchPermalink } from '../api/post-to-facebook.js';
 
 const NOW = 1_800_000_000;
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -78,4 +78,39 @@ test('Graph API 的錯誤要翻成看得懂的話', () => {
   assert.match(readGraphError(null, 500), /回應異常.*500/);
   // error_user_msg 有的話也要帶出來
   assert.match(readGraphError({ error: { code: 1, message: 'a', error_user_msg: '請稍後再試' } }, 500), /請稍後再試/);
+});
+
+// 2026-11-25 真實事故:發布成功卻回了 facebook.com/284455941624148_1579963497501291,
+// 那不是 Facebook 認得的路徑,點進去看不到貼文,使用者以為沒發布又按一次 → 粉專重複貼文。
+// Graph 實際給的 permalink_url 是 facebook.com/1572421051588869/posts/1579963497501291。
+test('貼文網址不能用 <粉專編號>_<貼文編號> 的格式', () => {
+  const url = fallbackPermalink('284455941624148', '284455941624148_1579963497501291');
+  assert.equal(url, 'https://www.facebook.com/284455941624148/posts/1579963497501291');
+  assert.ok(!url.includes('_'), '網址裡不可以出現底線那種合成編號:' + url);
+  // 沒有底線的裸編號也要能處理
+  assert.equal(fallbackPermalink('123', '456'), 'https://www.facebook.com/123/posts/456');
+  assert.equal(fallbackPermalink('123', ''), '');
+  assert.equal(fallbackPermalink('123', undefined), '');
+});
+
+test('permalink 以 Graph 回的 permalink_url 為準,拿不到就回空字串不要編', async () => {
+  const oldFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ permalink_url: 'https://www.facebook.com/1572421051588869/posts/1579963497501291' }) });
+    assert.equal(await fetchPermalink('284455941624148_1579963497501291', 't'),
+      'https://www.facebook.com/1572421051588869/posts/1579963497501291');
+
+    // 非 facebook.com 的網址不信
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ permalink_url: 'https://evil.example/x' }) });
+    assert.equal(await fetchPermalink('1_2', 't'), '');
+
+    // Graph 回錯或沒有這個欄位時回空字串,不可以自己拼一個
+    globalThis.fetch = async () => ({ ok: false, json: async () => ({ error: { code: 100 } }) });
+    assert.equal(await fetchPermalink('1_2', 't'), '');
+    globalThis.fetch = async () => { throw new Error('network down'); };
+    assert.equal(await fetchPermalink('1_2', 't'), '');
+    assert.equal(await fetchPermalink('', 't'), '');
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
 });

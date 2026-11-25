@@ -86,6 +86,43 @@ async function graph(path, { token, json, form, timeoutMs = 60000 }) {
   return payload || {};
 }
 
+// --- 貼文網址 ---
+//
+// 2026-11-25 使用者:「顯示『已發布到粉絲專頁:https://www.facebook.com/284455941624148_1579963497501291』
+// 但是並沒有發布」。實際查 Graph 的 published_posts,那則**真的發出去了**
+// (2026-11-25 15:00:43 台北)。壞的是這個網址:
+// `facebook.com/<粉專編號>_<貼文編號>` 不是 Facebook 認得的路徑,點進去看不到貼文,
+// 於是看起來像沒發成功——她因此又按了一次,粉專上多出一則重複貼文。
+//
+// 正解是跟 Graph 要 `permalink_url`(那是 Facebook 自己給的網址)。
+// 實測同一則貼文的 permalink_url 是
+// `https://www.facebook.com/1572421051588869/posts/1579963497501291`——
+// 前面那串**不是 FB_PAGE_ID**,所以不能自己拼,一定要問 Graph。
+export function fallbackPermalink(pageId, postId) {
+  const id = String(postId || '');
+  if (!id) return '';
+  const tail = id.includes('_') ? id.split('_')[1] : id;
+  if (!tail) return '';
+  return `https://www.facebook.com/${pageId}/posts/${tail}`;
+}
+
+// 問 Graph 這則貼文的正式網址。拿不到就回空字串,絕不自己編一個會 404 的網址。
+export async function fetchPermalink(postId, token, timeoutMs = 15000) {
+  if (!postId) return '';
+  try {
+    const response = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${encodeURIComponent(postId)}?fields=permalink_url`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(timeoutMs) }
+    );
+    if (!response.ok) return '';
+    const payload = await response.json().catch(() => null);
+    const url = payload?.permalink_url;
+    return typeof url === 'string' && /^https:\/\/(www\.)?facebook\.com\//.test(url) ? url : '';
+  } catch {
+    return '';
+  }
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: '僅接受 POST。' });
@@ -139,11 +176,18 @@ export default async function handler(req, res) {
     }
 
     const postId = result.post_id || result.id || '';
+
+    // 排程貼文還沒公開,Graph 不會給 permalink_url,就不要給網址(給了也打不開)。
+    let permalink = '';
+    if (postId && !scheduled) {
+      permalink = await fetchPermalink(postId, token) || fallbackPermalink(pageId, postId);
+    }
+
     return res.status(200).json({
       ok: true,
       scheduled,
       postId,
-      permalink: postId ? `https://www.facebook.com/${postId}` : '',
+      permalink,
       message: scheduled ? '已排程,時間到會自動發布。' : '已發布到粉絲專頁。'
     });
   } catch (error) {
