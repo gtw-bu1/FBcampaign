@@ -1,5 +1,9 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.12.5',date:'2026-11-25',items:[
+    '新增刪除貼文的功能（/api/delete-post，必須帶 confirm=DELETE）。用來清掉舊版排程產生的「相簿照片」型貼文——那種貼文粉專動態上看不到，留著只會佔相簿。',
+    '刪除時會自動判斷是相簿照片還是動態貼文，相簿照片要刪照片本身才刪得掉；刪完會回查一次確認真的不在了。'
+  ]},
   {version:'1.12.4',date:'2026-11-25',items:[
     '修正排程發布的貼文「發出來但粉專上看不到」的問題。原本排程是把圖片直接丟給 Facebook 的相片端點，到時間它只把照片放進相簿，不會變成粉專動態貼文，所以你和同事都看不到。現在照官方做法改成兩步：先上傳未發布的照片，再建立帶圖的動態貼文來排程。',
     '排程佇列每一則都可以直接「取消這則排程」，不用去 Facebook 後台找。只能取消還沒公開的，已發布的貼文不會從這裡刪掉。',
