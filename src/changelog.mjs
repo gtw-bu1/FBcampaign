@@ -1,5 +1,10 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.12.3',date:'2026-11-25',items:[
+    '新增「粉專上的排程佇列」：排程送出後，畫面上直接列出 Facebook 上實際等待發布的貼文（時間、縮圖、文案），不用再去商務管理平台的「規劃工具」確認——那裡不會顯示用程式排的貼文，看起來像沒排成功。',
+    '時間已經過了卻還沒發出的排程貼文會標記警告。',
+    '排程成功的提示文字改掉，不再把人導去看不到東西的地方。'
+  ]},
   {version:'1.12.2',date:'2026-11-25',items:[
     '修正「已發布到粉絲專頁」給錯網址的問題。貼文其實有發出去，但網址組成 facebook.com/<粉專編號>_<貼文編號>，那不是 Facebook 認得的格式，點進去看不到東西，會讓人誤以為沒發布成功。現在改成向 Facebook 要這則貼文的正式網址。',
     '通知裡的網址可以直接點開，不用自己複製。',

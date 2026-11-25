@@ -21,6 +21,16 @@
 .schedule-toggle input{width:14px;height:14px;accent-color:#38372f;cursor:pointer}
 .schedule-time{border:1px solid #d9d5cb;border-radius:7px;padding:11px 12px;font-size:12px;background:#fff;color:#302d28}
 .schedule-hint{margin:0 26px 18px;font-size:10px;line-height:1.7}
+/* 粉專上的排程佇列(不要叫使用者去 FB 規劃工具確認,那裡看不到 API 建的排程) */
+.queue{margin:0 26px 18px;padding:12px 14px;background:#fbfaf7;border:1px solid #e7e5df;border-radius:10px}
+.queue-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:8px}
+.queue-head strong{font-size:12px}
+.queue-row{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #f0efe9}
+.queue-row img,.queue-noimg{width:52px;height:52px;border-radius:7px;object-fit:cover;flex:0 0 auto}
+.queue-noimg{background:#efede7;color:#a3998b;font-size:9px;display:flex;align-items:center;justify-content:center}
+.queue-at{font-size:12px;font-weight:700;color:#302d28;margin-bottom:3px}
+.queue-text{font-size:10px;line-height:1.7;color:#5f4333;word-break:break-word}
+.queue .muted{margin:6px 0 0;font-size:10px;line-height:1.7}
 /* 貼文成效預估 */
 .forecast-box{margin:0 26px 20px;padding:16px 18px;background:#fbfaf7;border:1px solid #e7e5df;border-radius:10px}
 .forecast-head{font-size:11px;color:#7b8674;display:flex;align-items:baseline;gap:8px;margin-bottom:10px}
