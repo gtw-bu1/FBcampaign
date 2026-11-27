@@ -1,5 +1,8 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.12.6',date:'2026-11-27',items:[
+    '單張圖片排程改用 Facebook 指定的暫存照片和排程貼文參數。發布後的圖文呈現仍待訪客畫面確認。'
+  ]},
   {version:'1.12.5',date:'2026-11-25',items:[
     '新增刪除貼文的功能（/api/delete-post，必須帶 confirm=DELETE）。用來清掉舊版排程產生的「相簿照片」型貼文——那種貼文粉專動態上看不到，留著只會佔相簿。',
     '刪除時會自動判斷是相簿照片還是動態貼文，相簿照片要刪照片本身才刪得掉；刪完會回查一次確認真的不在了。'
