@@ -117,11 +117,8 @@ test('permalink 以 Graph 回的 permalink_url 為準,拿不到就回空字串�
 });
 
 
-// 2026-11-25 真實事故的回歸測試:
-// 排程 + 有圖**不可以**直接打 /photos 帶 scheduled_publish_time——
-// 那樣發出來是相簿照片,粉專動態上看不到(14:00 那則就是這樣,同事也看不到)。
-// 必須先以 published=false 上傳照片,再用 /feed 帶 attached_media 排程。
-test('排程 + 有圖要走「先上傳未發布照片,再用 /feed 帶 attached_media」兩步', async () => {
+// 這裡檢查送給 Graph 的請求；到點後的訪客畫面需另外驗收。
+test('單圖排程先上傳 temporary 照片，再用 SCHEDULED 貼文附上原圖及文案', async () => {
   const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
   const pageId = '284455941624148';
   const oldEnv = { id: process.env.FB_PAGE_ID, tk: process.env.FB_PAGE_ACCESS_TOKEN, code: process.env.FB_CAMPAIGN_ACCESS_CODE };
@@ -143,10 +140,11 @@ test('排程 + 有圖要走「先上傳未發布照片,再用 /feed 帶 attached
 
   const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; } };
   try {
+    const scheduledTime = Math.floor(Date.now() / 1000) + 3600;
     await handler({
       method: 'POST',
       headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE },
-      body: { message: '【測試】排程文案', imageDataUrl: PNG, scheduledPublishTime: Math.floor(Date.now() / 1000) + 3600 }
+      body: { message: '【測試】排程文案', imageDataUrl: PNG, scheduledPublishTime: scheduledTime }
     }, res);
 
     assert.equal(res.statusCode, 200, JSON.stringify(res.body));
@@ -158,10 +156,13 @@ test('排程 + 有圖要走「先上傳未發布照片,再用 /feed 帶 attached
     const feedCall = calls.find((c) => c.url.includes('/feed'));
     assert.ok(photoCall, '要先上傳照片');
     assert.ok(feedCall, '要再用 /feed 排程');
+    assert.deepEqual(calls.filter(c => c.options.method === 'POST'), [photoCall, feedCall]);
 
     // 照片那一步:published=false,而且**不可以**帶 scheduled_publish_time
     const fields = [...photoCall.options.body.keys()];
     assert.equal(photoCall.options.body.get('published'), 'false');
+    assert.equal(photoCall.options.body.get('temporary'), 'true');
+    assert.deepEqual(Buffer.from(await photoCall.options.body.get('source').arrayBuffer()), decodeDataUrl(PNG).bytes);
     assert.ok(!fields.includes('scheduled_publish_time'), '照片那一步不可以帶排程時間:' + fields.join(','));
     assert.ok(!fields.includes('caption'), '文字要寫在 /feed 的 message,不是照片的 caption');
 
@@ -170,7 +171,8 @@ test('排程 + 有圖要走「先上傳未發布照片,再用 /feed 帶 attached
     assert.deepEqual(sent.attached_media, [{ media_fbid: 'PHOTO_1' }]);
     assert.equal(sent.published, false);
     assert.equal(sent.message, '【測試】排程文案');
-    assert.ok(Number.isInteger(sent.scheduled_publish_time));
+    assert.equal(sent.unpublished_content_type, 'SCHEDULED');
+    assert.equal(sent.scheduled_publish_time, scheduledTime);
   } finally {
     globalThis.fetch = oldFetch;
     resetTokenCache();
