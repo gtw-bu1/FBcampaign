@@ -1,19 +1,7 @@
-// 粉專上「目前還沒發出去的排程貼文」清單。唯讀。
-//
-// 為什麼要這支(2026-11-25 真實事故):
-// 使用者 11-18 用工具排了一則 11/25 14:00 的貼文,工具回「已排程」,
-// 但她到 Facebook 商務管理平台的「規劃工具」看是空的,以為排程失敗。
-// 今天 14:00:01 那則**確實自動發布了**(id 284455941624148_1572308271600147),
-// 可是她在 14:00 前已經不相信排程,於是 15:00 又手動發了一次,
-// 15:03 因為網址打不開又發一次 → 同一個活動在粉專上出現三則。
-//
-// 根因是 Facebook 的介面:**用 API 建立的 unpublished post 不一定出現在規劃工具的日曆上**
-// (11-18 當天就確認過這個現象)。所以不能把「去 FB 的規劃工具看」當成確認方式——
-// 要讓工具自己把 Facebook 上的真實排程佇列顯示出來。
-//
-// 權限:讀 scheduled_posts 需要粉專權杖(用戶權杖讀不到),所以一律先 resolvePageToken。
 import { gate } from './_auth.mjs';
 import { resolvePageToken } from './_pagetoken.mjs';
+
+import { queueConfigured, queuePrefix, listPhotoJobs, cancelPhotoJob } from './_photo-queue.mjs';
 
 const GRAPH_VERSION = 'v27.0';
 const FIELDS = 'id,message,created_time,scheduled_publish_time,full_picture';
@@ -58,32 +46,53 @@ export default async function handler(req, res) {
   const denied = gate(req, process.env.FB_CAMPAIGN_ACCESS_CODE);
   if (denied) return res.status(denied.startsWith('尚未設定') ? 503 : 401).json({ error: denied });
 
-  let token;
-  try {
-    ({ token } = await resolvePageToken(rawToken, pageId));
-  } catch (error) {
-    return res.status(502).json({ error: error?.message || '無法取得粉絲專頁權杖。' });
-  }
-
-  if (req.method === 'DELETE') return cancelScheduled(req, res, token);
-
-  try {
-    const response = await fetch(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/scheduled_posts?fields=${FIELDS}&limit=50`,
-      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) }
-    );
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const e = payload?.error;
-      return res.status(502).json({ error: `讀不到排程貼文:${e?.message || `HTTP ${response.status}`}` });
+  if (req.method === 'DELETE') {
+    const id = String(req.query?.id ?? req.body?.id ?? '').trim();
+    try {
+      if (id.startsWith(queuePrefix)) {
+        if (!await cancelPhotoJob(pageId, id.slice(queuePrefix.length))) {
+          return res.status(409).json({ error: '這筆已取消或已進入發布程序，請重新查詢。' });
+        }
+        return res.status(200).json({ ok: true, deleted: id });
+      }
+      const { token } = await resolvePageToken(rawToken, pageId);
+      return cancelScheduled(req, res, token);
+    } catch {
+      return res.status(502).json({ error: '無法確認取消結果，請重新查詢清單。' });
     }
-    const posts = (payload?.data || []).map((p) => normalizeScheduled(p)).filter(Boolean)
-      .sort((a, b) => a.at - b.at);
-    return res.status(200).json({ ok: true, count: posts.length, posts });
-  } catch (error) {
-    const msg = error?.name === 'TimeoutError' ? 'Facebook 回應超時,請重試。' : (error?.message || '查詢失敗,請重試。');
-    return res.status(502).json({ error: msg });
   }
+
+  const localEnabled = queueConfigured();
+  const [local, facebook] = await Promise.allSettled([
+    localEnabled ? listPhotoJobs(pageId) : [],
+    listFacebookScheduled(pageId, rawToken)
+  ]);
+  if ((!localEnabled || local.status === 'rejected') && facebook.status === 'rejected') {
+    return res.status(502).json({ error: '工具排程與 Facebook 排程皆無法讀取。' });
+  }
+  const posts = local.status === 'fulfilled' ? local.value.map(row => {
+    const at = Date.parse(row.due_at) / 1000;
+    return {
+      id: queuePrefix + row.id, at, atText: taipeiTime(at), message: row.message,
+      state: row.state, postId: row.post_id, source: 'tool', overdue: row.state === 'pending' && at < Date.now() / 1000
+    };
+  }) : [];
+  if (facebook.status === 'fulfilled') posts.push(...facebook.value);
+  posts.sort((x, y) => x.at - y.at);
+  const warning = local.status === 'rejected' ? '工具排程暫時讀取失敗，以下只列 Facebook 排程。'
+    : facebook.status === 'rejected' ? 'Facebook 排程暫時讀取失敗，以下只列工具排程。' : '';
+  return res.status(200).json({ ok: true, count: posts.length, posts, warning });
+}
+
+async function listFacebookScheduled(pageId, rawToken) {
+  const { token } = await resolvePageToken(rawToken, pageId);
+  const response = await fetch(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${pageId}/scheduled_posts?fields=${FIELDS}&limit=50`,
+    { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) }
+  );
+  if (!response.ok) throw new Error('無法讀取 Facebook 排程。');
+  const payload = await response.json();
+  return (payload.data || []).map(p => normalizeScheduled(p)).filter(Boolean);
 }
 
 // --- 取消排程 ---

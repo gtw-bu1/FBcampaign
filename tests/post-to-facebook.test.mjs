@@ -117,108 +117,73 @@ test('permalink 以 Graph 回的 permalink_url 為準,拿不到就回空字串�
 });
 
 
-// 這裡檢查送給 Graph 的請求；到點後的訪客畫面需另外驗收。
-test('單圖排程先上傳 temporary 照片，再用 SCHEDULED 貼文附上原圖及文案', async () => {
-  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
-  const pageId = '284455941624148';
-  const oldEnv = { id: process.env.FB_PAGE_ID, tk: process.env.FB_PAGE_ACCESS_TOKEN, code: process.env.FB_CAMPAIGN_ACCESS_CODE };
-  const oldFetch = globalThis.fetch;
-  process.env.FB_PAGE_ID = pageId;
-  process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-for-test';
-  process.env.FB_CAMPAIGN_ACCESS_CODE = 'test-access-code-at-least-24-chars';
-  resetTokenCache();
-
-  const calls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    calls.push({ url: u, options });
-    if (u.includes('me?fields=id,name')) return { ok: true, status: 200, json: async () => ({ id: pageId, name: '測試粉專' }) };
-    if (u.includes('/photos')) return { ok: true, status: 200, json: async () => ({ id: 'PHOTO_1' }) };
-    if (u.includes('/feed')) return { ok: true, status: 200, json: async () => ({ id: pageId + '_STORY_9' }) };
-    return { ok: false, status: 404, json: async () => ({ error: { message: 'unexpected ' + u } }) };
-  };
-
-  const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; } };
-  try {
-    const scheduledTime = Math.floor(Date.now() / 1000) + 3600;
-    await handler({
-      method: 'POST',
-      headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE },
-      body: { message: '【測試】排程文案', imageDataUrl: PNG, scheduledPublishTime: scheduledTime }
-    }, res);
-
-    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
-    assert.equal(res.body.scheduled, true);
-    assert.equal(res.body.postId, pageId + '_STORY_9');
-    assert.equal(res.body.permalink, '', '排程貼文還沒公開,不該給網址');
-
-    const photoCall = calls.find((c) => c.url.includes('/photos'));
-    const feedCall = calls.find((c) => c.url.includes('/feed'));
-    assert.ok(photoCall, '要先上傳照片');
-    assert.ok(feedCall, '要再用 /feed 排程');
-    assert.deepEqual(calls.filter(c => c.options.method === 'POST'), [photoCall, feedCall]);
-
-    // 照片那一步:published=false,而且**不可以**帶 scheduled_publish_time
-    const fields = [...photoCall.options.body.keys()];
-    assert.equal(photoCall.options.body.get('published'), 'false');
-    assert.equal(photoCall.options.body.get('temporary'), 'true');
-    assert.deepEqual(Buffer.from(await photoCall.options.body.get('source').arrayBuffer()), decodeDataUrl(PNG).bytes);
-    assert.ok(!fields.includes('scheduled_publish_time'), '照片那一步不可以帶排程時間:' + fields.join(','));
-    assert.ok(!fields.includes('caption'), '文字要寫在 /feed 的 message,不是照片的 caption');
-
-    // /feed 那一步:帶 attached_media 指向剛上傳的照片
-    const sent = JSON.parse(feedCall.options.body);
-    assert.deepEqual(sent.attached_media, [{ media_fbid: 'PHOTO_1' }]);
-    assert.equal(sent.published, false);
-    assert.equal(sent.message, '【測試】排程文案');
-    assert.equal(sent.unpublished_content_type, 'SCHEDULED');
-    assert.equal(sent.scheduled_publish_time, scheduledTime);
-  } finally {
-    globalThis.fetch = oldFetch;
-    resetTokenCache();
-    if (oldEnv.id === undefined) delete process.env.FB_PAGE_ID; else process.env.FB_PAGE_ID = oldEnv.id;
-    if (oldEnv.tk === undefined) delete process.env.FB_PAGE_ACCESS_TOKEN; else process.env.FB_PAGE_ACCESS_TOKEN = oldEnv.tk;
-    if (oldEnv.code === undefined) delete process.env.FB_CAMPAIGN_ACCESS_CODE; else process.env.FB_CAMPAIGN_ACCESS_CODE = oldEnv.code;
+function mockPhotoApi(t, onRequest) {
+  const env = { FB_PAGE_ID: '55555', FB_PAGE_ACCESS_TOKEN: 'fixture', FB_CAMPAIGN_ACCESS_CODE: 'offline-test'.repeat(3) };
+  for (const [key, value] of Object.entries(env)) {
+    const old = process.env[key];
+    process.env[key] = value;
+    t.after(() => { if (old === undefined) delete process.env[key]; else process.env[key] = old; });
   }
+  resetTokenCache();
+  t.after(resetTokenCache);
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (input, options = {}) => {
+    const url = new URL(input);
+    if (url.pathname.endsWith('/me')) return Response.json({ id: '55555' });
+    calls.push({ path: url.pathname, options });
+    return onRequest(url.pathname, options);
+  });
+  return calls;
+}
+
+async function submitPhoto(body) {
+  const res = { setHeader() {}, status(n) { this.code = n; return this; }, json(v) { this.data = v; return this; } };
+  await handler({ method:'POST', headers:{'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE}, body: {message:'活動文案', ...body} }, res);
+  return res;
+}
+
+for (const images of [[PNG], [JPG, PNG]]) {
+  test('立刻發布 ' + images.length + ' 張圖，只在最後的 /feed 公開文案和依序排列的附件', async t => {
+    let uploaded = 0;
+    const calls = mockPhotoApi(t, (path, { body }) => {
+      if (path.endsWith('/photos')) return Response.json({ id: 'photo' + ++uploaded });
+      if (path.endsWith('/feed')) return Response.json({ id: '55555_99999' });
+      return Response.json({ permalink_url: 'https://www.facebook.com/55555/posts/99999' });
+    });
+    const result = await submitPhoto(images.length === 1 ? { imageDataUrl: PNG } : { imageDataUrls: images });
+    assert.equal(result.code, 200);
+    assert.equal(result.data.postId, '55555_99999');
+    assert.equal(result.data.permalink, 'https://www.facebook.com/55555/posts/99999');
+    assert.deepEqual(calls.map(c=>c.path), [
+      ...images.map(()=>'/v27.0/55555/photos'), '/v27.0/55555/feed', '/v27.0/55555_99999'
+    ]);
+    for (const [index, image] of images.entries()) {
+      const form = calls[index].options.body;
+      assert.deepEqual([...form.keys()].sort(), ['published','source']);
+      assert.equal(form.get('published'), 'false');
+      assert.deepEqual(Buffer.from(await form.get('source').arrayBuffer()), decodeDataUrl(image).bytes);
+    }
+    assert.deepEqual(JSON.parse(calls[images.length].options.body), {
+      message:'活動文案', attached_media: images.map((_,i)=>({media_fbid:'photo'+(i+1)}))
+    });
+  });
+}
+
+test('第二張圖上傳失敗就停止，不能發布一篇缺圖的貼文', async t => {
+  const calls = mockPhotoApi(t, () => calls.length === 1 ? Response.json({id:'p1'}) : Response.json({error:{message:'bad image'}},{status:400}));
+  assert.equal((await submitPhoto({imageDataUrls:[PNG,JPG]})).code,502);
+  assert.deepEqual(calls.map(c=>c.path), ['/v27.0/55555/photos','/v27.0/55555/photos']);
 });
 
-test('立刻發布 + 有圖仍然走 /photos 帶 caption(這條路已驗證會建立正常動態貼文)', async () => {
-  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==';
-  const pageId = '284455941624148';
-  const oldEnv = { id: process.env.FB_PAGE_ID, tk: process.env.FB_PAGE_ACCESS_TOKEN, code: process.env.FB_CAMPAIGN_ACCESS_CODE };
-  const oldFetch = globalThis.fetch;
-  process.env.FB_PAGE_ID = pageId;
-  process.env.FB_PAGE_ACCESS_TOKEN = 'page-token-for-test';
-  process.env.FB_CAMPAIGN_ACCESS_CODE = 'test-access-code-at-least-24-chars';
-  resetTokenCache();
+test('缺少貼文編號時，不把照片編號當成已發布的貼文', async t => {
+  mockPhotoApi(t, path => Response.json(path.endsWith('/photos') ? {id:'p1'} : {}));
+  const result = await submitPhoto({imageDataUrl:PNG});
+  assert.equal(result.code,502);
+  assert.match(result.data.error,/貼文編號/);
+});
 
-  const calls = [];
-  globalThis.fetch = async (url, options = {}) => {
-    const u = String(url);
-    calls.push(u);
-    if (u.includes('me?fields=id,name')) return { ok: true, status: 200, json: async () => ({ id: pageId, name: '測試粉專' }) };
-    if (u.includes('/photos')) return { ok: true, status: 200, json: async () => ({ id: 'PHOTO_2', post_id: pageId + '_STORY_7' }) };
-    if (u.includes('permalink_url')) return { ok: true, status: 200, json: async () => ({ permalink_url: 'https://www.facebook.com/1572421051588869/posts/STORY_7' }) };
-    return { ok: false, status: 404, json: async () => ({ error: { message: 'unexpected ' + u } }) };
-  };
-
-  const res = { statusCode: 200, headers: {}, setHeader(k, v) { this.headers[k] = v; }, status(n) { this.statusCode = n; return this; }, json(v) { this.body = v; return this; } };
-  try {
-    await handler({
-      method: 'POST',
-      headers: { 'x-access-code': process.env.FB_CAMPAIGN_ACCESS_CODE },
-      body: { message: '【測試】立刻發布', imageDataUrl: PNG }
-    }, res);
-    assert.equal(res.statusCode, 200, JSON.stringify(res.body));
-    assert.equal(res.body.scheduled, false);
-    assert.equal(res.body.postId, pageId + '_STORY_7');
-    assert.equal(res.body.permalink, 'https://www.facebook.com/1572421051588869/posts/STORY_7');
-    assert.ok(!calls.some((u) => u.includes('/feed')), '立刻發布不需要繞 /feed');
-  } finally {
-    globalThis.fetch = oldFetch;
-    resetTokenCache();
-    if (oldEnv.id === undefined) delete process.env.FB_PAGE_ID; else process.env.FB_PAGE_ID = oldEnv.id;
-    if (oldEnv.tk === undefined) delete process.env.FB_PAGE_ACCESS_TOKEN; else process.env.FB_PAGE_ACCESS_TOKEN = oldEnv.tk;
-    if (oldEnv.code === undefined) delete process.env.FB_CAMPAIGN_ACCESS_CODE; else process.env.FB_CAMPAIGN_ACCESS_CODE = oldEnv.code;
+test('所有圖片須在第一個上傳前通過驗證', () => {
+  for (const fields of [{imageDataUrls:[]},{imageDataUrls:PNG},{imageDataUrls:[PNG,'bad']},{imageDataUrls:Array(11).fill(PNG)},{imageDataUrl:PNG,imageDataUrls:[JPG]}]) {
+    assert.ok(validatePublishRequest({message:'test',...fields}, NOW));
   }
 });
