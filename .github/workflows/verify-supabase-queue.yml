@@ -24,10 +24,10 @@ jobs:
         run: |
           docker run -d --name queue-fixture --network none -e POSTGRES_PASSWORD=local-fixture-only -e POSTGRES_DB=postgres supabase/postgres:17.6.1.136 postgres -c config_file=/etc/postgresql/postgresql.conf
           for i in $(seq 1 90); do
-            if docker exec queue-fixture pg_isready -q -U supabase_admin && docker exec queue-fixture psql -U supabase_admin -d postgres -tAc "select 1 from pg_roles where rolname='service_role'" | grep -qx 1; then break; fi
+            if docker exec queue-fixture pg_isready -h 127.0.0.1 -q -U supabase_admin && docker exec queue-fixture psql -U supabase_admin -d postgres -tAc "select 1 from pg_roles where rolname='service_role'" | grep -qx 1; then break; fi
             sleep 2
           done
-          docker exec queue-fixture pg_isready -U supabase_admin
+          docker exec queue-fixture pg_isready -h 127.0.0.1 -U supabase_admin
       - name: Apply schema and exercise scheduling, cancellation and replay protection
         run: |
           docker exec -i queue-fixture psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 < supabase/scheduled-photos.sql
