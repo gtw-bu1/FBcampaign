@@ -62,11 +62,12 @@ export default async function handler(req, res) {
     }
   }
 
+  const localEnabled = queueConfigured();
   const [local, facebook] = await Promise.allSettled([
-    queueConfigured() ? listPhotoJobs(pageId) : [],
+    localEnabled ? listPhotoJobs(pageId) : [],
     listFacebookScheduled(pageId, rawToken)
   ]);
-  if (local.status === 'rejected' && facebook.status === 'rejected') {
+  if ((!localEnabled || local.status === 'rejected') && facebook.status === 'rejected') {
     return res.status(502).json({ error: '工具排程與 Facebook 排程皆無法讀取。' });
   }
   const posts = local.status === 'fulfilled' ? local.value.map(row => {

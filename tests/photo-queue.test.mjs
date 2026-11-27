@@ -130,3 +130,36 @@ test('cancel only accepts local pending jobs and remains separate from native Fa
   assert.equal((await invoke(scheduled, {}, 'DELETE', query)).code, 200);
   assert.equal((await invoke(scheduled, {}, 'DELETE', query)).code, 409);
 });
+
+test('local jobs stay visible even when Facebook cannot return its legacy queue', async t => {
+  setup(t, async (input) => {
+    const url = new URL(input);
+    if (url.hostname === 'graph.facebook.com') return json({error:{message:'offline'}}, 503);
+    if (url.searchParams.get('state') === 'eq.published') return json([]);
+    return json([{ id: 'b'.repeat(64), due_at: new Date(due * 1000).toISOString(), message: caption, state: 'pending', post_id: null }]);
+  });
+  const res = await invoke(scheduled, {}, 'GET');
+  assert.equal(res.code, 200);
+  assert.equal(res.data.posts[0].source, 'tool');
+  assert.equal(res.data.posts[0].state, 'pending');
+  assert.match(res.data.warning, /Facebook/);
+  delete process.env.FB_QUEUE_SUPABASE_SECRET_KEY;
+  assert.equal((await invoke(scheduled, {}, 'GET')).code, 502);
+});
+
+test('a token lookup failure before the photo is sent can be retried safely', async t => {
+  let transition;
+  setup(t, async (input, options) => {
+    const path = new URL(input).pathname;
+    if (path.endsWith('/fb_claim_photo')) return json([{message:caption,image_data:image}]);
+    if (path.endsWith('/me')) return json({error:{code:190}}, 400);
+    assert.equal(options.method, 'PATCH');
+    transition = JSON.parse(options.body);
+    return json([{ id: 'x' }]);
+  });
+  const res = await invoke(deliver, { id: 'a'.repeat(64), ticket });
+  assert.equal(res.code, 503);
+  assert.equal(transition.state, 'pending');
+  assert.ok(Date.parse(transition.next_attempt) > Date.now());
+  assert.equal(transition.image_data, undefined);
+});
