@@ -1,76 +1,48 @@
-name: Check the scheduled post as a signed-out visitor
+name: Verify single and multiple photo posts
 on:
   push:
     branches: [verify/scheduled-photo-node-tests]
 permissions:
   contents: read
 jobs:
-  visitor:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    strategy:
+      matrix:
+        ref: ['810514c386e9a010727bd006f3da6b95262016d6', '540f47dfa4b925f375f3c7dfca35ba4a54c6226a']
     steps:
-      - name: Prepare visitor browser
-        run: npm install --prefix "$RUNNER_TEMP/visitor" --no-fund --no-audit playwright-core@1.56.1
-      - name: Check the public feed and the immediate-post control after publication time
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: TZ=Asia/Taipei npm test
+      - run: npm run build
+      - name: Exercise the attachment picker and payload in Chrome
         run: |
-          cd "$RUNNER_TEMP/visitor"
+          npm install --prefix "$RUNNER_TEMP/browser-test" --no-fund --no-audit playwright-core@1.56.1
+          npm run dev -- --port 4173 > "$RUNNER_TEMP/vite.log" 2>&1 &
+          for i in $(seq 1 25); do curl -fsS http://localhost:4173/ >/dev/null && break; sleep 1; done
+          cd "$RUNNER_TEMP/browser-test"
           CHROME_PATH="$(command -v google-chrome)" node --input-type=module <<'NODE'
           import { chromium } from 'playwright-core'
-          import { mkdir, writeFile } from 'node:fs/promises'
-          const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
-          const due = Date.parse('2026-11-27T15:09:00+08:00')
-          await wait(Math.max(0, due - Date.now()))
-          const browser = await chromium.launch({executablePath: process.env.CHROME_PATH, headless: true})
-          const context = await browser.newContext({locale:'zh-TW', timezoneId:'Asia/Taipei', viewport:{width:1200,height:900}})
-          const path = process.env.GITHUB_WORKSPACE + '/visitor-evidence'
-          const open = async (url) => {
-            const page = await context.newPage()
-            await page.goto(url, {waitUntil:'domcontentloaded',timeout:35000})
-            await page.waitForTimeout(2200)
-            const dialog = page.getByRole('dialog').first()
-            if (await dialog.isVisible()) {
-              const close = dialog.getByRole('button',{name:/^(close|關閉)$/i}).first()
-              if (await close.isVisible()) await close.click().catch(()=>{})
-            }
-            return page
-          }
-          const markers = /和艾莉的秋冬約會|艾莉（永久）送給你|微涼的秋冬微風悄悄吹起/
-          const controlUrl = 'https://www.facebook.com/1572421051588869/posts/1579963497501291'
-          async function validate(page, label) {
-            const text = await page.locator('body').innerText()
-            const articles = page.getByRole('article')
-            const hasLogin = /登入|登錄|log in|log into/i.test(text)
-            console.log(label, 'url-path', new URL(page.url()).pathname, 'login-text', hasLogin, 'articles', await articles.count(), 'campaign-text', markers.test(text))
-          }
+          import assert from 'node:assert/strict'
+          const browser = await chromium.launch({executablePath:process.env.CHROME_PATH})
           try {
-            const feed = await open('https://www.facebook.com/csoline.tw')
-            await validate(feed,'page')
-            const card = feed.getByRole('article').filter({hasText:markers}).first()
-            if (await card.isVisible()) {
-              await mkdir(path,{recursive:true})
-              await card.scrollIntoViewIfNeeded()
-              await feed.screenshot({path:path+'/page-feed.png'})
-              const links = await card.locator('a[href]').evaluateAll(nodes=>nodes.map(n=>n.href))
-              const url = links.find(value => {const u=new URL(value);return /^(www\.|m\.)?facebook\.com$/.test(u.hostname) && (/\/posts\//.test(u.pathname) || u.searchParams.has('story_fbid') || /\/permalink\//.test(u.pathname))})
-              if (url) {
-                const post = await open(url)
-                await validate(post,'scheduled-permalink')
-                if (markers.test(await post.locator('body').innerText())) {
-                  await post.screenshot({path:path+'/scheduled-post.png'})
-                  await writeFile(path+'/post-url.txt',url)
-                }
-              }
-            }
-            const control = await open(controlUrl)
-            await validate(control,'control')
-            if (await card.isVisible() && await control.getByRole('article').first().isVisible())
-              await control.screenshot({path:path+'/immediate-post.png'})
+            const page=await browser.newPage()
+            await page.goto('http://localhost:4173')
+            const file=page.getByLabel('附加發布圖片')
+            await file.setInputFiles([{name:'extra.png',mimeType:'image/png',buffer:Buffer.from([111,112])}])
+            await page.getByRole('button',{name:'移除 extra.png'}).click()
+            assert.equal(await page.getByRole('button',{name:'移除 extra.png'}).count(),0)
+            const payload = await page.evaluate(async()=>{
+              const {makeFeedPayload}=await import('/src/feed-payload.mjs')
+              const blob=new File([new Uint8Array([111,112])],'extra.png',{type:'image/png'})
+              return JSON.parse(await makeFeedPayload('example','data:image/png;base64,AAAA',[blob],1234567890))
+            })
+            assert.deepEqual(payload,{message:'example',imageDataUrls:['data:image/png;base64,AAAA','data:image/png;base64,b3A='],scheduledPublishTime:1234567890})
+            console.log('Attachment picker, removal, actual FileReader and ordered JSON passed')
           } finally {await browser.close()}
           NODE
-      - name: Save available public-post screenshots
-        uses: actions/upload-artifact@v4
-        with:
-          name: visitor-evidence
-          path: visitor-evidence/
-          if-no-files-found: ignore
-          retention-days: 1
