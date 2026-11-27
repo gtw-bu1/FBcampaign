@@ -18,6 +18,8 @@
 import { gate } from './_auth.mjs';
 import { resolvePageToken } from './_pagetoken.mjs';
 
+import { enqueuePhoto, queueConfigured } from './_photo-queue.mjs';
+
 const GRAPH_VERSION = 'v27.0';
 const MAX_MESSAGE_CHARS = 20000;
 const MAX_IMAGE_BASE64_CHARS = 8_000_000;   // 約 6MB 原始檔
@@ -123,6 +125,15 @@ export async function fetchPermalink(postId, token, timeoutMs = 15000) {
   }
 }
 
+export async function publishPhotoNow(pageId, token, message, imageDataUrl) {
+  const decoded = decodeDataUrl(imageDataUrl);
+  if (!decoded) throw new Error('圖片解析失敗。');
+  const form = new FormData();
+  form.append('caption', message);
+  form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
+  return graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: '僅接受 POST。' });
@@ -146,6 +157,17 @@ export default async function handler(req, res) {
   const { message, imageDataUrl, link, scheduledPublishTime } = body;
   const scheduled = Number.isInteger(scheduledPublishTime);
 
+  if (imageDataUrl && scheduled) {
+    if (!queueConfigured()) return res.status(503).json({ error: '單圖排程尚未啟用，這則沒有送出。可使用立刻發布。' });
+    try {
+      const caption = link && !message.includes(link) ? message + '\n\n' + link : message;
+      const jobId = await enqueuePhoto(pageId, caption, imageDataUrl, scheduledPublishTime);
+      return res.status(200).json({ ok: true, scheduled: true, jobId, postId: '', permalink: '', message: '已加入工具排程。' });
+    } catch {
+      return res.status(503).json({ error: '無法確認排程結果，請先重新查詢排程清單。' });
+    }
+  }
+
   // 排程貼文必須以粉專身分發布,所以一律先把權杖解析成粉專權杖。
   let token;
   try {
@@ -156,42 +178,8 @@ export default async function handler(req, res) {
 
   try {
     let result;
-    if (imageDataUrl && scheduled) {
-      // Meta Page Photos v27.0：排程用照片先暫存，再把發布時間設定在 /feed 貼文上。
-      const decoded = decodeDataUrl(imageDataUrl);
-      if (!decoded) return res.status(400).json({ error: '圖片解析失敗。' });
-
-      const form = new FormData();
-      form.append('published', 'false');
-      form.append('temporary', 'true');
-      form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
-      const photo = await graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
-      const mediaId = photo.id || '';
-      if (!mediaId) {
-        return res.status(502).json({ error: '圖片上傳成功但 Facebook 沒有回照片編號,無法排程。請重試。' });
-      }
-
-      result = await graph(`${pageId}/feed`, {
-        token,
-        json: {
-          message,
-          ...(link ? { link } : {}),
-          attached_media: [{ media_fbid: String(mediaId) }],
-          published: false,
-          unpublished_content_type: 'SCHEDULED',
-          scheduled_publish_time: scheduledPublishTime
-        }
-      });
-    } else if (imageDataUrl) {
-      // 有圖、立刻發:走 /photos,用 multipart 直接把位元組送上去。
-      // 不用 url 參數,因為那要求圖片先有公開可存取的網址;我們的圖是前端現做的。
-      // 這條路已驗證會建立正常的動態貼文(11-25 的 15:00 與 15:03 兩則)。
-      const decoded = decodeDataUrl(imageDataUrl);
-      if (!decoded) return res.status(400).json({ error: '圖片解析失敗。' });
-      const form = new FormData();
-      form.append('caption', message);
-      form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
-      result = await graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
+    if (imageDataUrl) {
+      result = await publishPhotoNow(pageId, token, message, imageDataUrl);
     } else {
       const json = { message, ...(link ? { link } : {}) };
       if (scheduled) { json.published = false; json.scheduled_publish_time = scheduledPublishTime; }

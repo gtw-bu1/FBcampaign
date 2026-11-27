@@ -18,10 +18,8 @@ function NoticeText({ text }) {
   return <>{text.slice(0, m.index)}<a href={m[0]} target="_blank" rel="noreferrer">{m[0]}</a>{text.slice(m.index + m[0].length)}</>;
 }
 
-// 粉專上實際的排程佇列。
-// 2026-11-25:使用者排了一則、工具回「已排程」,但 FB 商務管理平台的「規劃工具」
-// 不顯示用 API 建的排程貼文,她以為失敗,改成手動發 → 同一個活動發了三次。
-// 所以排程狀態要在這個工具自己的畫面上看得到,不要把人推去 FB 的介面確認。
+const queueStates = { pending: '待發布', publishing: '發布處理中', published: 'Facebook 已接受發布', review: '結果待確認，請至粉專查核後再決定是否重發' };
+
 function ScheduleQueue({ accessCode, reloadKey }) {
   const [state, setState] = useState({ phase: 'idle', posts: [], error: '' });
 
@@ -34,7 +32,7 @@ function ScheduleQueue({ accessCode, reloadKey }) {
       });
       const json = await response.json().catch(() => null);
       if (!response.ok) throw Error(json?.error || `讀取失敗（${response.status}）。`);
-      setState({ phase: 'done', posts: json.posts || [], error: '' });
+      setState({ phase: 'done', posts: json.posts || [], error: '', warning: json.warning || '' });
     } catch (e) {
       setState({ phase: 'done', posts: [], error: e?.message || '讀取失敗。' });
     }
@@ -63,24 +61,26 @@ function ScheduleQueue({ accessCode, reloadKey }) {
 
   return <div className="queue">
     <div className="queue-head">
-      <strong>粉專上的排程佇列</strong>
+      <strong>發文排程與近期結果</strong>
       <button className="link-btn" onClick={load} disabled={state.phase === 'loading'}>
-        {state.phase === 'loading' ? '讀取中…' : '↻ 向 Facebook 查詢'}
+        {state.phase === 'loading' ? '讀取中…' : '↻ 更新清單'}
       </button>
     </div>
     {state.error && <p className="forecast-warn">{state.error}</p>}
-    {state.phase === 'done' && !state.error && state.posts.length === 0 &&
-      <p className="muted">Facebook 上目前沒有等待發布的排程貼文。</p>}
+    {state.warning && <p className="forecast-warn">{state.warning}</p>}
+    {state.phase === 'done' && !state.error && !state.warning && state.posts.length === 0 &&
+      <p className="muted">目前沒有待處理的排程或近期發布結果。</p>}
     {state.posts.map((p) => <div className="queue-row" key={p.id}>
-      {p.picture ? <img src={p.picture} alt=""/> : <div className="queue-noimg">無圖</div>}
+      {p.picture ? <img src={p.picture} alt=""/> : <div className="queue-noimg">{p.source === 'tool' ? '圖文' : '無圖'}</div>}
       <div>
         <div className="queue-at">{p.atText || '(沒有排程時間)'}{p.overdue && ' ⚠ 時間已過但還沒發出'}</div>
+        <div>{p.source === 'tool' ? '工具排程 · ' + queueStates[p.state] : 'Facebook 排程'}{p.postId && ' · ' + p.postId}</div>
         <div className="queue-text">{(p.message || '(無文字)').replace(/\s+/g, ' ').slice(0, 90)}</div>
-        <button className="link-btn" disabled={state.phase === 'loading'} onClick={() => cancel(p)}>取消這則排程</button>
+        {(!p.state || p.state === 'pending') && <button className="link-btn" disabled={state.phase === 'loading'} onClick={() => cancel(p)}>取消這則排程</button>}
       </div>
     </div>)}
     {state.phase === 'done' && !state.error && state.posts.length > 0 &&
-      <p className="muted">這是直接向 Facebook 查到的結果。要改時間或取消，請到粉絲專頁的「專業主控板 → 排程貼文」。</p>}
+      <p className="muted">工具排程會在到點後送出圖文。既有 Facebook 排程也可在此查詢及取消。</p>}
   </div>;
 }
 async function makeAssetReference(asset){
@@ -120,7 +120,7 @@ function App(){
  async function forgetDevice(){await fetch('/api/generate',{method:'DELETE',credentials:'same-origin'}).catch(()=>{});setRemembered(false);setAccessCode('');setNotice('已清除這台瀏覽器的登入記憶。');}
  async function clipboard(){try{await navigator.clipboard.writeText(copy);setNotice('文案已複製。');}catch{setNotice('瀏覽器不允許自動複製，請在文案欄全選後手動複製。');}}
 
- async function publishToFacebook(){if(!ready||!posterDataUrl)return;if(generatedKey!==key){setNotice('圖片設定已變更，請重新生成 AI 海報後再發布。');return;}const error=validateActivity(a);if(error){setNotice(error);return;}if(!copy.trim()){setNotice('沒有文案可以發布，請先生成文案。');return;}let scheduledPublishTime;if(scheduleAt){const problem=validateScheduleInput(scheduleAt);if(problem){setNotice(problem);return;}scheduledPublishTime=toUnixSeconds(scheduleAt);}if(!window.confirm(scheduledPublishTime?`確定要排程在 ${new Date(scheduleAt).toLocaleString('zh-TW')} 發布嗎？在那之前不會公開，可到粉絲專頁的排程清單取消。`:'確定要發布到粉絲專頁嗎？送出後就會公開顯示。'))return;setBusy(true);setNotice('');try{const imageDataUrl=canvas.current.toDataURL('image/jpeg',.92);const response=await fetch('/api/post-to-facebook',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(accessCode.trim()?{'x-access-code':accessCode.trim()}:{})},body:JSON.stringify({message:copy,imageDataUrl,...(scheduledPublishTime?{scheduledPublishTime}:{})})});const result=await response.json().catch(()=>null);if(!response.ok){if(response.status===401){setRemembered(false);setAccessCode('');}throw Error(result?.error||`發布失敗（${response.status}）。`);}setRemembered(true);setAccessCode('');setScheduleAt('');setNotice(result?.scheduled?'已排程。下面的「粉專上的排程佇列」就是 Facebook 上的實際狀態，請確認它出現在清單裡。':(result?.permalink?`已發布到粉絲專頁，點這個連結看貼文：${result.permalink}`:(result?.message||'已發布到粉絲專頁。')));if(result?.scheduled)setQueueKey(k=>k+1);}catch(e){setNotice(e?.message||'發布失敗，請重試。');}finally{setBusy(false);}}
+ async function publishToFacebook(){if(!ready||!posterDataUrl)return;if(generatedKey!==key){setNotice('圖片設定已變更，請重新生成 AI 海報後再發布。');return;}const error=validateActivity(a);if(error){setNotice(error);return;}if(!copy.trim()){setNotice('沒有文案可以發布，請先生成文案。');return;}let scheduledPublishTime;if(scheduleAt){const problem=validateScheduleInput(scheduleAt);if(problem){setNotice(problem);return;}scheduledPublishTime=toUnixSeconds(scheduleAt);}if(!window.confirm(scheduledPublishTime?`確定要排程在 ${new Date(scheduleAt).toLocaleString('zh-TW')} 發布嗎？在那之前不會公開，可在下方排程清單取消。`:'確定要發布到粉絲專頁嗎？送出後就會公開顯示。'))return;setBusy(true);setNotice('');try{const imageDataUrl=canvas.current.toDataURL('image/jpeg',.92);const response=await fetch('/api/post-to-facebook',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(accessCode.trim()?{'x-access-code':accessCode.trim()}:{})},body:JSON.stringify({message:copy,imageDataUrl,...(scheduledPublishTime?{scheduledPublishTime}:{})})});const result=await response.json().catch(()=>null);if(!response.ok){if(response.status===401){setRemembered(false);setAccessCode('');}throw Error(result?.error||`發布失敗（${response.status}）。`);}setRemembered(true);setAccessCode('');setScheduleAt('');setNotice(result?.scheduled?'已加入排程，可在下方查看狀態。':(result?.permalink?`已發布到粉絲專頁，點這個連結看貼文：${result.permalink}`:(result?.message||'已發布到粉絲專頁。')));if(result?.scheduled)setQueueKey(k=>k+1);}catch(e){setNotice(e?.message||'發布失敗，請重試。');}finally{setBusy(false);}}
  function download(){if(!ready||!posterDataUrl)return;if(generatedKey!==key){setNotice('圖片設定已變更，請重新生成 AI 海報後下載。');return;}const error=validateActivity(a);if(error){setNotice(error);return;}canvas.current.toBlob(blob=>{if(!blob){setNotice('圖片輸出失敗，請重試。');return;}const url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`${a.name.replace(/[\\/:*?"<>|]/g,'-')}-${size}.png`;link.click();setTimeout(()=>URL.revokeObjectURL(url),3000);setNotice(`已下載 ${size} PNG。`);},'image/png');}
  async function importStyle(e){const file=e.target.files[0];if(!file)return;try{if(file.size>100000)throw Error('JSON 檔案須小於 100 KB。');setStyle(parseStyle(await file.text()));setNotice('已匯入風格規則；文字案例會供 AI 文案參考。');}catch(x){setNotice(`匯入失敗：${x.message}`);}e.target.value='';}
  function exportStyle(){const exportData={...style,examples:[...style.examples,...(example.trim()&&!style.examples.includes(example.trim())?[example.trim()]:[])]};const url=URL.createObjectURL(new Blob([JSON.stringify(exportData,null,2)],{type:'application/json'}));const l=document.createElement('a');l.href=url;l.download='social-style.json';l.click();setTimeout(()=>URL.revokeObjectURL(url),3000);}
