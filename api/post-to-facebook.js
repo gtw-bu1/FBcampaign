@@ -48,8 +48,8 @@ export function validatePublishRequest(body, nowSeconds = Math.floor(Date.now() 
   if (scheduledPublishTime !== undefined) {
     if (!Number.isInteger(scheduledPublishTime)) return '排程時間必須是 UNIX 秒數整數。';
     const { min, max } = scheduleWindow(nowSeconds);
-    if (scheduledPublishTime < min) return '排程時間必須至少在 10 分鐘之後(Facebook 的規定)。';
-    if (scheduledPublishTime > max) return '排程時間不能超過 30 天之後(Facebook 的規定)。';
+    if (scheduledPublishTime < min) return '排程時間必須至少在 10 分鐘之後。';
+    if (scheduledPublishTime > max) return '排程時間不能超過 30 天之後。';
   }
   return '';
 }

@@ -40,7 +40,7 @@ export function validateScheduleInput(value, nowMs = Date.now()) {
   const seconds = toUnixSeconds(value);
   if (seconds === null) return '排程時間格式不正確,請重新選擇。';
   const now = Math.floor(nowMs / 1000);
-  if (seconds < now + MIN_AHEAD_SECONDS) return '排程時間必須至少在 10 分鐘之後(Facebook 的規定)。';
-  if (seconds > now + MAX_AHEAD_SECONDS) return '排程時間不能超過 30 天之後(Facebook 的規定)。';
+  if (seconds < now + MIN_AHEAD_SECONDS) return '排程時間必須至少在 10 分鐘之後。';
+  if (seconds > now + MAX_AHEAD_SECONDS) return '排程時間不能超過 30 天之後。';
   return '';
 }
