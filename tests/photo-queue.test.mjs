@@ -36,16 +36,21 @@ async function invoke(handler, body, method = 'POST', query = {}) {
 }
 
 test('accepted image schedule saves one job without contacting Facebook; delivery uses the immediate multipart path once', async t => {
-  let row, sentForm, uploads = 0, graphCalls = 0;
+  let row, sentFeed, uploads = 0, graphCalls = 0;
+  const forms = [];
   setup(t, async (input, options = {}) => {
     const url = new URL(input);
     if (url.hostname === 'graph.facebook.com') {
       graphCalls++;
       if (url.pathname.endsWith('/me')) return json({ id: page });
+      if (url.pathname.endsWith('/feed')) {
+        sentFeed = JSON.parse(options.body);
+        return json({ id: '55555_22222' });
+      }
       assert.equal(url.pathname, '/v27.0/' + page + '/photos');
-      sentForm = options.body;
+      forms.push(options.body);
       uploads++;
-      return json({ id: 'photo', post_id: '55555_22222' });
+      return json({ id: 'photo' + uploads });
     }
     assert.equal(url.hostname, 'queue.invalid');
     if (url.pathname.endsWith('/fb_claim_photo')) {
@@ -66,24 +71,27 @@ test('accepted image schedule saves one job without contacting Facebook; deliver
     row = { ...proposed, state: 'pending' };
     return json([{ id: row.id, state: row.state }]);
   });
-  const body = { message: caption, imageDataUrl: image, scheduledPublishTime: due };
+  const images = [image, 'data:image/jpeg;base64,/9j/4AAQSkZJRg=='];
+  const body = { message: caption, imageDataUrls: images, scheduledPublishTime: due };
   const first = await invoke(publish, body);
   assert.equal(first.code, 200);
   assert.equal(first.data.jobId, 'queue-' + row.id);
   assert.equal((await invoke(publish, body)).data.jobId, first.data.jobId);
   assert.equal(graphCalls, 0);
   assert.equal(row.due_at, new Date(due * 1000).toISOString());
-  assert.equal(row.image_data, image);
+  assert.deepEqual(JSON.parse(row.image_data), images);
   assert.equal((await invoke(deliver, { id: row.id, ticket })).data.ok, true);
-  assert.deepEqual([...sentForm.keys()].sort(), ['caption','source']);
-  assert.equal(sentForm.get('caption'), caption);
-  assert.equal(sentForm.get('source').type, 'image/png');
-  assert.deepEqual(Buffer.from(await sentForm.get('source').arrayBuffer()), Buffer.from(image.split(',')[1], 'base64'));
+  assert.deepEqual(sentFeed, { message: caption, attached_media: [{ media_fbid:'photo1' }, { media_fbid:'photo2' }] });
+  for (let i = 0; i < forms.length; i++) {
+    assert.deepEqual([...forms[i].keys()].sort(), ['published','source']);
+    assert.equal(forms[i].get('published'), 'false');
+    assert.deepEqual(Buffer.from(await forms[i].get('source').arrayBuffer()), Buffer.from(images[i].split(',')[1], 'base64'));
+  }
   assert.equal(row.state, 'published');
   assert.equal(row.post_id, '55555_22222');
   assert.equal(row.image_data, null);
   assert.equal((await invoke(deliver, { id: row.id, ticket })).data.accepted, false);
-  assert.equal(uploads, 1);
+  assert.equal(uploads, 2);
 });
 
 test('ambiguous Facebook response stops automatic replay', async t => {
@@ -96,7 +104,8 @@ test('ambiguous Facebook response stops automatic replay', async t => {
       return json([{ message: caption, image_data: image }]);
     }
     if (path.endsWith('/me')) return json({ id: page });
-    if (path.endsWith('/photos')) { attempts++; throw new Error('connection lost'); }
+    if (path.endsWith('/photos')) return json({ id: 'photo' });
+    if (path.endsWith('/feed')) { attempts++; throw new Error('connection lost'); }
     assert.equal(options.method, 'PATCH');
     state = JSON.parse(options.body).state;
     return json([{ id: 'x' }]);

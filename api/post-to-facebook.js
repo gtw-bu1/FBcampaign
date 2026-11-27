@@ -30,18 +30,30 @@ export function scheduleWindow(nowSeconds) {
   return { min: nowSeconds + SCHEDULE_MIN_SECONDS, max: nowSeconds + SCHEDULE_MAX_SECONDS };
 }
 
+function requestImages(body) {
+  if (body.imageDataUrls !== undefined) return body.imageDataUrls;
+  return body.imageDataUrl === undefined ? [] : [body.imageDataUrl];
+}
+
 // 回傳錯誤訊息字串;沒問題回空字串。純函式,方便測試。
 export function validatePublishRequest(body, nowSeconds = Math.floor(Date.now() / 1000)) {
   if (!body || typeof body !== 'object') return '請求格式不正確。';
   const { message, imageDataUrl, link, scheduledPublishTime } = body;
   if (typeof message !== 'string' || !message.trim()) return '貼文內容不可為空。';
   if (message.length > MAX_MESSAGE_CHARS) return `貼文內容過長(上限 ${MAX_MESSAGE_CHARS} 字)。`;
-  if (imageDataUrl !== undefined) {
-    if (typeof imageDataUrl !== 'string' || !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(imageDataUrl)) {
+  if (body.imageDataUrls !== undefined && (imageDataUrl !== undefined || !Array.isArray(body.imageDataUrls) || !body.imageDataUrls.length)) {
+    return '請提供單張圖片或非空的圖片清單。';
+  }
+  const images = requestImages(body);
+  if (images.length > 10) return '每則貼文最多可加入 10 張圖片。';
+  let total = 0;
+  for (const image of images) {
+    if (typeof image !== 'string' || !/^data:image\/(jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(image)) {
       return '圖片格式不正確,只接受 JPEG 或 PNG 的 data URL。';
     }
-    if (imageDataUrl.length > MAX_IMAGE_BASE64_CHARS) return '圖片過大,請降低畫質或改用 JPEG。';
+    total += image.length;
   }
+  if (total > MAX_IMAGE_BASE64_CHARS) return '圖片過大,請降低畫質或改用 JPEG。';
   if (link !== undefined && (typeof link !== 'string' || !/^https:\/\/[^\s]+$/.test(link))) {
     return '連結必須是 https 開頭的網址。';
   }
@@ -125,13 +137,37 @@ export async function fetchPermalink(postId, token, timeoutMs = 15000) {
   }
 }
 
-export async function publishPhotoNow(pageId, token, message, imageDataUrl) {
-  const decoded = decodeDataUrl(imageDataUrl);
-  if (!decoded) throw new Error('圖片解析失敗。');
-  const form = new FormData();
-  form.append('caption', message);
-  form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
-  return graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
+export async function publishPhotoFeed(pageId, token, message, images, scheduledPublishTime) {
+  const attachedMedia = [];
+  for (const image of images) {
+    const decoded = decodeDataUrl(image);
+    if (!decoded) throw new Error('圖片解析失敗。');
+    const form = new FormData();
+    form.append('published', 'false');
+    if (scheduledPublishTime) form.append('temporary', 'true');
+    form.append('source', new Blob([decoded.bytes], { type: decoded.mime }), `poster.${decoded.ext}`);
+    const photo = await graph(`${pageId}/photos`, { token, form, timeoutMs: 120000 });
+    if (!photo.id) throw new Error('Facebook 未回傳圖片編號，貼文尚未送出。');
+    attachedMedia.push({ media_fbid: String(photo.id) });
+  }
+
+  const json = { message, attached_media: attachedMedia };
+  if (scheduledPublishTime) {
+    json.published = false;
+    json.scheduled_publish_time = scheduledPublishTime;
+    json.unpublished_content_type = 'SCHEDULED';
+  }
+  let post;
+  try {
+    post = await graph(`${pageId}/feed`, { token, json });
+  } catch (error) {
+    if (error instanceof TypeError || error.name === 'TimeoutError') {
+      throw new Error('Facebook 貼文結果尚未確認，請先查詢粉專或排程清單，避免重複送出。');
+    }
+    throw error;
+  }
+  if (!post.id) throw new Error('Facebook 未回傳貼文編號，請先確認發布結果。');
+  return { id: post.id };
 }
 
 export default async function handler(req, res) {
@@ -154,14 +190,15 @@ export default async function handler(req, res) {
   const problem = validatePublishRequest(body);
   if (problem) return res.status(400).json({ error: problem });
 
-  const { message, imageDataUrl, link, scheduledPublishTime } = body;
+  const { message, link, scheduledPublishTime } = body;
+  const images = requestImages(body);
+  const photoMessage = link && !message.includes(link) ? message + '\n\n' + link : message;
   const scheduled = Number.isInteger(scheduledPublishTime);
 
-  if (imageDataUrl && scheduled) {
-    if (!queueConfigured()) return res.status(503).json({ error: '單圖排程尚未啟用，這則沒有送出。可使用立刻發布。' });
+  if (images.length && scheduled) {
+    if (!queueConfigured()) return res.status(503).json({ error: '圖文排程尚未啟用，這則沒有送出。可使用立刻發布。' });
     try {
-      const caption = link && !message.includes(link) ? message + '\n\n' + link : message;
-      const jobId = await enqueuePhoto(pageId, caption, imageDataUrl, scheduledPublishTime);
+      const jobId = await enqueuePhoto(pageId, photoMessage, images, scheduledPublishTime);
       return res.status(200).json({ ok: true, scheduled: true, jobId, postId: '', permalink: '', message: '已加入工具排程。' });
     } catch {
       return res.status(503).json({ error: '無法確認排程結果，請先重新查詢排程清單。' });
@@ -178,8 +215,8 @@ export default async function handler(req, res) {
 
   try {
     let result;
-    if (imageDataUrl) {
-      result = await publishPhotoNow(pageId, token, message, imageDataUrl);
+    if (images.length) {
+      result = await publishPhotoFeed(pageId, token, photoMessage, images);
     } else {
       const json = { message, ...(link ? { link } : {}) };
       if (scheduled) { json.published = false; json.scheduled_publish_time = scheduledPublishTime; }

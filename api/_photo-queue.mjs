@@ -24,7 +24,9 @@ async function database(path, { method = 'GET', body, prefer } = {}) {
   }
 }
 
-export async function enqueuePhoto(pageId, message, imageDataUrl, at) {
+export async function enqueuePhoto(pageId, message, images, at) {
+  // Preserve the original single-image representation and its idempotency key.
+  const imageDataUrl = images.length === 1 ? images[0] : JSON.stringify(images);
   const id = createHash('sha256').update(JSON.stringify([pageId, at, message, imageDataUrl])).digest('hex');
   const rows = await database('fb_photo_jobs?select=id,state', {
     method: 'POST',

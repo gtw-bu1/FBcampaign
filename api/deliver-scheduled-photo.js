@@ -1,6 +1,6 @@
 import { resolvePageToken } from './_pagetoken.mjs';
 import { claimPhotoJob, updateClaimedJob, validJobId } from './_photo-queue.mjs';
-import { publishPhotoNow } from './post-to-facebook.js';
+import { publishPhotoFeed } from './post-to-facebook.js';
 
 const ticketFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -27,7 +27,8 @@ export default async function handler(req, res) {
 
     let postId;
     try {
-      const result = await publishPhotoNow(pageId, token, job.message, job.image_data);
+      const images = job.image_data.startsWith('[') ? JSON.parse(job.image_data) : [job.image_data];
+      const result = await publishPhotoFeed(pageId, token, job.message, images);
       postId = result.post_id || result.id;
       if (!postId) throw new Error('Missing Facebook ID');
     } catch {
