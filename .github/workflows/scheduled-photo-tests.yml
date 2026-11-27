@@ -9,35 +9,51 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: 58ce07d34ea579db169ccf102e38c0db5d92a10d
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: TZ=Asia/Taipei npm test
 
-      - name: Check anonymous API readiness
+      - name: Verify live version
         run: |
           node --input-type=module <<'NODE'
-          const hosts = {
-            production: 'https://f-bcampaign.vercel.app',
-            preview: 'https://f-bcampaign-git-fix-scheduled-photo-parameters-bu-6.vercel.app',
+          const site = new URL('https://f-bcampaign.vercel.app/')
+          const response = await fetch(site, {cache:'no-store'})
+          if (!response.ok) throw Error('site HTTP ' + response.status)
+          const html = await response.text()
+          const urls = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+\.js)"/g)].map(m => new URL(m[1], site))
+          let found = false
+          for (const url of urls.filter(u => u.origin === site.origin)) {
+            const js = await (await fetch(url)).text()
+            found ||= js.includes('1.12.6')
           }
-          for (const [environment, host] of Object.entries(hosts)) {
-            for (const endpoint of ['generate', 'post-to-facebook']) {
-              const response = await fetch(host + '/api/' + endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: '{}',
-                redirect: 'manual',
-                signal: AbortSignal.timeout(20000),
-              })
-              const json = await response.json().catch(() => ({}))
-              const message = String(json.error || '')
-              const state = /AI 尚未啟用/.test(message) ? 'ai_configuration_missing'
-                : /尚未啟用 FB 發布/.test(message) ? 'fb_configuration_missing'
-                : /尚未設定/.test(message) ? 'configuration_missing'
-                : /使用密碼/.test(message) ? 'access_code_required'
-                : 'other'
-              console.log(environment, endpoint, response.status, state)
-            }
-          }
+          if (!found) throw Error('release marker absent')
+          console.log('Verified release 1.12.6 on production hostname')
           NODE
+      - name: Read existing Facebook posts as a signed-out visitor
+        run: |
+          for path in csoline.tw 1572421051588869/posts/1580092624155045 1572421051588869/posts/1579963497501291; do
+            candidate=$(mktemp)
+            timeout 35s google-chrome --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --lang=zh-TW --dump-dom "https://www.facebook.com/$path" > "$candidate" 2>/dev/null || true
+            python3 - "$path" "$candidate" <<'PY'
+          import sys
+          from html.parser import HTMLParser
+          class Visible(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.skip = 0
+                  self.text = []
+              def handle_starttag(self, tag, attrs):
+                  if tag in ('script', 'style'): self.skip += 1
+              def handle_endtag(self, tag):
+                  if tag in ('script', 'style') and self.skip: self.skip -= 1
+              def handle_data(self, data):
+                  if not self.skip: self.text.append(data)
+          parser = Visible()
+          with open(sys.argv[2], errors='replace') as f: parser.feed(f.read())
+          body = ' '.join(parser.text).casefold()
+          print(sys.argv[1], 'seasonal-copy:', '聖誕輪盤' in body, 'login-prompt:', any(x in body for x in ('log in', 'log into', '登入')), 'blocking-message:', any(x in body for x in ('temporarily blocked', 'not available', 'something went wrong', 'access denied', '無法顯示', '暫時封鎖')))
+          PY
+          done
