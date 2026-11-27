@@ -1,5 +1,8 @@
 // Add a dated entry for every new production deployment. Earlier work is grouped by day from GitHub commits.
 export const releases = [
+  {version:'1.12.7',date:'2026-11-27',items:[
+    '圖文立刻發布改成先上傳未公開圖片，再建立一則包含文案和全部圖片的動態貼文。可在主海報後面附加 JPEG 或 PNG。'
+  ]},
   {version:'1.12.6',date:'2026-11-27',items:[
     '單張圖片排程改用 Facebook 指定的暫存照片和排程貼文參數。發布後的圖文呈現仍待訪客畫面確認。'
   ]},
