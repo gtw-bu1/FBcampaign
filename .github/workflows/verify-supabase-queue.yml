@@ -32,3 +32,16 @@ jobs:
         run: |
           docker exec -i queue-fixture psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 < supabase/scheduled-photos.sql
           docker exec -i queue-fixture psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 < tests/sql/scheduled-photos.sql
+      - name: Wait for a real minute tick (isolated network)
+        run: |
+          psql_test() { docker exec queue-fixture psql -qAt -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -c "$1"; }
+          psql_test "insert into public.fb_photo_jobs(id,page_id,due_at,message,image_data) values(repeat('d',64),'55555',clock_timestamp()+interval '10 seconds','fixture','test-only');"
+          test "$(psql_test "select ticket is null from public.fb_photo_jobs where id=repeat('d',64)")" = t
+          for i in $(seq 1 40); do
+            if test "$(psql_test "select count(*) from public.fb_photo_jobs where id=repeat('d',64) and ticket is not null and due_at <= now()")" = 1; then
+              echo 'The actual minute timer dispatched the saved job after its due time.'
+              exit 0
+            fi
+            sleep 3
+          done
+          exit 1
