@@ -1,59 +1,76 @@
-name: Scheduled photo regression tests
+name: Check the scheduled post as a signed-out visitor
 on:
   push:
     branches: [verify/scheduled-photo-node-tests]
 permissions:
   contents: read
 jobs:
-  test:
+  visitor:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: 58ce07d34ea579db169ccf102e38c0db5d92a10d
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: TZ=Asia/Taipei npm test
-
-      - name: Verify live version
+      - name: Prepare visitor browser
+        run: npm install --prefix "$RUNNER_TEMP/visitor" --no-fund --no-audit playwright-core@1.56.1
+      - name: Check the public feed and the immediate-post control after publication time
         run: |
-          node --input-type=module <<'NODE'
-          const site = new URL('https://f-bcampaign.vercel.app/')
-          const response = await fetch(site, {cache:'no-store'})
-          if (!response.ok) throw Error('site HTTP ' + response.status)
-          const html = await response.text()
-          const urls = [...html.matchAll(/<script\b[^>]*\bsrc="([^"]+\.js)"/g)].map(m => new URL(m[1], site))
-          let found = false
-          for (const url of urls.filter(u => u.origin === site.origin)) {
-            const js = await (await fetch(url)).text()
-            found ||= js.includes('1.12.6')
+          cd "$RUNNER_TEMP/visitor"
+          CHROME_PATH="$(command -v google-chrome)" node --input-type=module <<'NODE'
+          import { chromium } from 'playwright-core'
+          import { mkdir, writeFile } from 'node:fs/promises'
+          const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+          const due = Date.parse('2026-11-27T15:09:00+08:00')
+          await wait(Math.max(0, due - Date.now()))
+          const browser = await chromium.launch({executablePath: process.env.CHROME_PATH, headless: true})
+          const context = await browser.newContext({locale:'zh-TW', timezoneId:'Asia/Taipei', viewport:{width:1200,height:900}})
+          const path = process.env.GITHUB_WORKSPACE + '/visitor-evidence'
+          const open = async (url) => {
+            const page = await context.newPage()
+            await page.goto(url, {waitUntil:'domcontentloaded',timeout:35000})
+            await page.waitForTimeout(2200)
+            const dialog = page.getByRole('dialog').first()
+            if (await dialog.isVisible()) {
+              const close = dialog.getByRole('button',{name:/^(close|關閉)$/i}).first()
+              if (await close.isVisible()) await close.click().catch(()=>{})
+            }
+            return page
           }
-          if (!found) throw Error('release marker absent')
-          console.log('Verified release 1.12.6 on production hostname')
+          const markers = /和艾莉的秋冬約會|艾莉（永久）送給你|微涼的秋冬微風悄悄吹起/
+          const controlUrl = 'https://www.facebook.com/1572421051588869/posts/1579963497501291'
+          async function validate(page, label) {
+            const text = await page.locator('body').innerText()
+            const articles = page.getByRole('article')
+            const hasLogin = /登入|登錄|log in|log into/i.test(text)
+            console.log(label, 'url-path', new URL(page.url()).pathname, 'login-text', hasLogin, 'articles', await articles.count(), 'campaign-text', markers.test(text))
+          }
+          try {
+            const feed = await open('https://www.facebook.com/csoline.tw')
+            await validate(feed,'page')
+            const card = feed.getByRole('article').filter({hasText:markers}).first()
+            if (await card.isVisible()) {
+              await mkdir(path,{recursive:true})
+              await card.scrollIntoViewIfNeeded()
+              await feed.screenshot({path:path+'/page-feed.png'})
+              const links = await card.locator('a[href]').evaluateAll(nodes=>nodes.map(n=>n.href))
+              const url = links.find(value => {const u=new URL(value);return /^(www\.|m\.)?facebook\.com$/.test(u.hostname) && (/\/posts\//.test(u.pathname) || u.searchParams.has('story_fbid') || /\/permalink\//.test(u.pathname))})
+              if (url) {
+                const post = await open(url)
+                await validate(post,'scheduled-permalink')
+                if (markers.test(await post.locator('body').innerText())) {
+                  await post.screenshot({path:path+'/scheduled-post.png'})
+                  await writeFile(path+'/post-url.txt',url)
+                }
+              }
+            }
+            const control = await open(controlUrl)
+            await validate(control,'control')
+            if (await card.isVisible() && await control.getByRole('article').first().isVisible())
+              await control.screenshot({path:path+'/immediate-post.png'})
+          } finally {await browser.close()}
           NODE
-      - name: Read existing Facebook posts as a signed-out visitor
-        run: |
-          for path in csoline.tw 1572421051588869/posts/1580092624155045 1572421051588869/posts/1579963497501291; do
-            candidate=$(mktemp)
-            timeout 35s google-chrome --headless --no-sandbox --disable-gpu --disable-dev-shm-usage --lang=zh-TW --dump-dom "https://www.facebook.com/$path" > "$candidate" 2>/dev/null || true
-            python3 - "$path" "$candidate" <<'PY'
-          import sys
-          from html.parser import HTMLParser
-          class Visible(HTMLParser):
-              def __init__(self):
-                  super().__init__()
-                  self.skip = 0
-                  self.text = []
-              def handle_starttag(self, tag, attrs):
-                  if tag in ('script', 'style'): self.skip += 1
-              def handle_endtag(self, tag):
-                  if tag in ('script', 'style') and self.skip: self.skip -= 1
-              def handle_data(self, data):
-                  if not self.skip: self.text.append(data)
-          parser = Visible()
-          with open(sys.argv[2], errors='replace') as f: parser.feed(f.read())
-          body = ' '.join(parser.text).casefold()
-          print(sys.argv[1], 'seasonal-copy:', '聖誕輪盤' in body, 'login-prompt:', any(x in body for x in ('log in', 'log into', '登入')), 'blocking-message:', any(x in body for x in ('temporarily blocked', 'not available', 'something went wrong', 'access denied', '無法顯示', '暫時封鎖')))
-          PY
-          done
+      - name: Save available public-post screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: visitor-evidence
+          path: visitor-evidence/
+          if-no-files-found: ignore
+          retention-days: 1
