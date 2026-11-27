@@ -13,3 +13,31 @@ jobs:
         with:
           node-version: '22'
       - run: TZ=Asia/Taipei npm test
+
+      - name: Check anonymous API readiness
+        run: |
+          node --input-type=module <<'NODE'
+          const hosts = {
+            production: 'https://f-bcampaign.vercel.app',
+            preview: 'https://f-bcampaign-git-fix-scheduled-photo-parameters-bu-6.vercel.app',
+          }
+          for (const [environment, host] of Object.entries(hosts)) {
+            for (const endpoint of ['generate', 'post-to-facebook']) {
+              const response = await fetch(host + '/api/' + endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}',
+                redirect: 'manual',
+                signal: AbortSignal.timeout(20000),
+              })
+              const json = await response.json().catch(() => ({}))
+              const message = String(json.error || '')
+              const state = /AI 尚未啟用/.test(message) ? 'ai_configuration_missing'
+                : /尚未啟用 FB 發布/.test(message) ? 'fb_configuration_missing'
+                : /尚未設定/.test(message) ? 'configuration_missing'
+                : /使用密碼/.test(message) ? 'access_code_required'
+                : 'other'
+              console.log(environment, endpoint, response.status, state)
+            }
+          }
+          NODE
